@@ -161,9 +161,9 @@
                                                         Position</a></li>
                                             <?php }
                                             if (in_array("25", $this->module_data)) { ?>
-                                                <li><a href="<?php echo $this->config->item('base_url'); ?>admin/masters/education">
+                                                <!-- <li><a href="<?php echo $this->config->item('base_url'); ?>admin/masters/education">
                                                         Education
-                                                    </a></li>
+                                                    </a></li> -->
                                             <?php }
                                             if (in_array("10", $this->module_data)) { ?>
                                                 <li><a href="<?php echo $this->config->item('base_url'); ?>admin/masters/emailtemplate">
@@ -281,11 +281,13 @@
                                                                 Employee
                                                             </a></li>
                                                     <?php }
-                                                    if (in_array("22", $this->module_data)) { ?>
-                                                        <li><a href="<?php echo $this->config->item('base_url'); ?>admin/masters/mentor">
+                                                    //if (in_array("22", $this->module_data)) { 
+                                                    ?>
+                                                    <!-- <li><a href="<?php echo $this->config->item('base_url'); ?>admin/masters/mentor">
                                                                 Mentor
-                                                            </a></li>
-                                                    <?php } ?>
+                                                            </a></li> -->
+                                                    <?php //} 
+                                                    ?>
                                                 </ul>
                                             </div>
                                         </li>
@@ -297,6 +299,10 @@
                                         <i class="mdi-action-trending-up"></i>Job Post
                                     </a></li>
                             <?php } ?>
+                            <li><a href="<?php echo $this->config->item('base_url'); ?>admin/masters/Unregisteruser">
+                                    <i class="mdi-action-trending-up"></i>Un-Register Users
+                                </a>
+                            </li>
                             <li class="no-padding">
                                 <ul class="collapsible collapsible-accordion">
                                     <li class="bold"><a class="collapsible-header  waves-effect waves-indigo"><i class="mdi-content-archive"></i>Reports</a>
