@@ -416,4 +416,14 @@ class Jobpost extends Admin_Controller
         $objWriter->save('php://output');
         //readfile("jobpost.xls");
     }
+
+    public function shortlist()
+    {
+        echo 15;
+        die;
+        $data['config'] = $this->config_model->getConfig();
+        $this->load->view('admin/includes/header');
+        $this->load->view('admin/masters/shortlist/add_edit', $data);
+        $this->load->view('admin/includes/footer', $data);
+    }
 }
