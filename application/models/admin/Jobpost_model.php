@@ -60,10 +60,11 @@ class Jobpost_model extends CI_Model
         $jobpostid = getStringClean(($this->input->post('ID') != '') ? $this->input->post('ID') : '');
         $startsalary = getStringClean((@$salary[0] != '') ? @$salary[0] : -1);
         $endsalary = getStringClean((@$salary[1] != '') ? @$salary[1] : -1);
-        $designation = getStringClean(($this->input->post('DesignationID') != '') ? $this->input->post('DesignationID') : '');
+        $designation = getStringClean(($this->input->post('DesignationID') != '') ? $this->input->post('DesignationID')[0] : '');
         $sortby = getStringClean(($this->input->post('sortby') != '') ? $this->input->post('sortby') : 'Salary');
         $sortbyorder = getStringClean(($this->input->post('sortbyorder') != '') ? $this->input->post('sortbyorder') : 'ASC');
-
+        // print_r($designation);
+        // die;
         $sql = "call usp_A_GetCandidateList('$per_page_record','$page_number','$id','$path','$skill','$jobstatus','$jobpostid','$startsalary','$endsalary','$designation','$sortby','$sortbyorder')";
         $query = $this->db->query($sql);
         $query->next_result();

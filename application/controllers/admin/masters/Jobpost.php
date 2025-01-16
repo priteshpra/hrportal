@@ -298,6 +298,7 @@ class Jobpost extends Admin_Controller
         $_POST['UserID'] = $data['ID'] = $ID;
         $data['config'] = $this->config_model->getConfig();
         $data['Salary'] = GetSalary();
+        $data['Designation'] = getDesignationCombobox(0, 1);
         $data['details'] = $this->jobpost_model->getByID($ID);
         $data['page_level_js'] = $this->load->view('admin/masters/jobpost/details_js', $data, TRUE);
         $this->load->view('admin/includes/header');

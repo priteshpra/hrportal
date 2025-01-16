@@ -284,6 +284,14 @@
                 </div>
                 <!-- All Applied Job -->
                 <!-- All Shortlisted Job -->
+                <style>
+                  .modal {
+                    max-height: auto;
+                    width: 100%;
+                    top: 15%;
+                  }
+                </style>
+                <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
                 <div id="all_shortlisted" class="col s12">
                   <div class="col s12 m12 l12">
                     <div class="card-panel">
@@ -311,7 +319,7 @@
                                   <i id="display_action" class="mdi-hardware-keyboard-arrow-down tooltipped filtercls" data-div="all_shortlisted" data-type="Shortlisted" data-position="top" data-delay="50" data-tooltip="Search Filter"></i></a>
                                 &nbsp;&nbsp;
                               </div>&nbsp;&nbsp;
-                              <a href="<?php echo base_url("admin/masters/jobpost/shortlist"); ?>" class="btn-floating right waves-effect waves-light green accent-6"><i class="mdi-content-add tooltipped" data-position="top" data-delay="50" data-tooltip="Add"></i></a>
+                              <a data-bs-toggle="modal" data-bs-target="#tableModal" class="btn-floating right waves-effect waves-light green accent-6"><i class="mdi-content-add tooltipped" data-position="top" data-delay="50" data-tooltip="Add"></i></a>
                             </div>
                           </div>
                         </div>
@@ -365,6 +373,112 @@
                         </table>
                       </div>
                       <div id="table_paging_div" class="table_paging_div"></div>
+                      <!-- Bootstrap Modal -->
+                      <div class="modal fade" id="tableModal" tabindex="-1" aria-labelledby="tableModalLabel" aria-hidden="true">
+                        <div class="modal-dialog modal-lg">
+                          <div class="modal-content">
+                            <div class="modal-header">
+                              <div class="row">
+                                <div class="col s12">
+                                  <div class="row m-b-0">
+                                    <div class="input-field col m2 s12">
+                                      <select id="select-dropdown">
+                                        <option value="10" selected>10</option>
+                                        <option value="20">20</option>
+                                        <option value="50">50</option>
+                                        <option value="100">100</option>
+                                      </select>
+                                    </div>
+                                    <div class="col m6 s12 center m-t-20">
+                                      <span><label><?php echo label('msg_lbl_data_display'); ?> :</label></span> &nbsp;&nbsp;
+                                      <input name="data_display" type="radio" id="Alls" value="All" onclick="return changeFilter(this.value);" checked="checked">
+                                      <label for="Alls"><?php echo label('msg_lbl_all'); ?></label>
+                                      <input name="data_display" type="radio" id="Filters" value="Filter" onclick="return changeFilter(this.value);">
+                                      <label for="Filters"><?php echo label('msg_lbl_filter'); ?></label> &nbsp;&nbsp;
+
+                                    </div>
+                                    <div class="col s12 m4 right-align list-page-right-top-icon">
+                                      <a class="btn-floating waves-effect waves-light grey right">
+                                        <i id="display_action" onClick="field_display();" class="mdi-hardware-keyboard-arrow-down tooltipped" data-position="top" data-delay="50" data-tooltip="Search Filter"></i></a>
+
+                                    </div>
+                                  </div>
+                                </div>
+                                <div class="col s12">
+                                  <div class="search_action card-panel" style="display:none;">
+                                    <h4 class="header"><strong> <?php echo label('msg_lbl_search_value'); ?> </strong></h4>
+                                    <div class="row m-b-0">
+                                      <div class="input-field col s12 m6">
+                                        <input type="text" name="Skills" id="Skillss" maxlength="100" class="form-control LetterOnly">
+                                        <label name="Skills" class=""><?php echo label('msg_lbl_title_skill'); ?></label>
+                                      </div>
+                                      <div class="input-field col s12 m6">
+                                        <?php
+                                        echo @$Salary;
+                                        ?>
+                                      </div>
+                                      <div class="input-field col s12 m6">
+                                        <?php
+                                        echo @$Designation;
+                                        ?>
+                                      </div>
+                                    </div>
+                                    <button class="btn waves-effect waves-light right" type="button" id="button_submits" name="button_submit"><?php echo label('msg_lbl_submit'); ?>
+                                    </button>
+                                    &nbsp;&nbsp;&nbsp;
+                                    <a href="javascript:;" class="clear-all right" onclick="return clearAllFilter();"><?php echo label('msg_lbl_clear_all'); ?>
+                                    </a>
+                                  </div>
+                                </div>
+                              </div>
+                              <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                            </div>
+                            <div class="modal-body">
+                              <!-- Place your table here -->
+                              <div class="table-responsive">
+                                <table id="data-table-row-grouping" class="display" cellspacing="0" width="100%">
+                                  <thead>
+                                    <tr>
+                                      <th class="width_100"><?php echo label('msg_lbl_image'); ?></th>
+                                      <th class="width_200">
+                                        <span style="cursor: pointer;" href="javascript:void(0)" class="filter active" data-filter="Name">
+                                          <?php echo label('msg_lbl_name'); ?>
+                                          <i class="mdi-hardware-keyboard-arrow-down down hide"></i>
+                                          <i class="mdi-hardware-keyboard-arrow-up up"></i>
+                                        </span>
+                                      </th>
+                                      <th class="width_250"><?php echo label('msg_lbl_email'); ?></th>
+                                      <th class="width_150"><?php echo label('msg_lbl_cellphone'); ?></th>
+                                      <th class="width_150"><?php echo label('msg_lbl_otp'); ?></th>
+                                      <th class="width_150"><?php echo label('msg_lbl_city'); ?></th>
+                                      <th class="width_200">
+                                        <span style="cursor: pointer;" href="javascript:void(0)" class="filter" data-filter="Salary">
+                                          <?php echo label('msg_lbl_salary') . " (" . $config[0]->CurrencyCode . ")"; ?>
+                                          <i class="mdi-hardware-keyboard-arrow-down down hide"></i>
+                                          <i class="mdi-hardware-keyboard-arrow-up up"></i>
+                                        </span>
+                                      </th>
+                                      <th class="width_80"><?php echo label('msg_lbl_gender'); ?></th>
+                                      <th class="width_80"><?php echo label('msg_lbl_skill'); ?></th>
+                                      <th class="width_80"><?php echo label('msg_lbl_designation'); ?></th>
+                                      <th class="width_100"><?php echo label('msg_lbl_isexperience'); ?></th>
+                                      <th><?php echo label('msg_lbl_cv'); ?></th>
+                                      <th class="actions center"><?php echo label('msg_lbl_status'); ?></th>
+                                      <th class="actions center"><?php echo label('msg_lbl_action'); ?></th>
+                                    </tr>
+                                  </thead>
+                                  <tbody id="table_bodyshort">
+                                  </tbody>
+                                </table>
+                              </div>
+                              <div id="table_paging_divshort"></div>
+                            </div>
+                            <div class="modal-footer">
+                              <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
