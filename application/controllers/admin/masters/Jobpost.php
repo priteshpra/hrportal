@@ -300,6 +300,7 @@ class Jobpost extends Admin_Controller
         $data['Salary'] = GetSalary();
         $data['Designation'] = getDesignationCombobox(0, 1);
         $data['details'] = $this->jobpost_model->getByID($ID);
+        // $data['JobRelatedText'] = $data['details'][0]->JobTitle;
         $data['page_level_js'] = $this->load->view('admin/masters/jobpost/details_js', $data, TRUE);
         $this->load->view('admin/includes/header');
         $this->load->view('admin/masters/jobpost/details', $data);
@@ -418,13 +419,26 @@ class Jobpost extends Admin_Controller
         //readfile("jobpost.xls");
     }
 
-    public function shortlist()
+    public function upsertCompanyJobAction($CurrentState, $CandidateUserID, $JobPostID, $CompanyEmployeeUserID)
     {
-        echo 15;
-        die;
-        $data['config'] = $this->config_model->getConfig();
-        $this->load->view('admin/includes/header');
-        $this->load->view('admin/masters/shortlist/add_edit', $data);
-        $this->load->view('admin/includes/footer', $data);
+        $this->db->where('CandidateUserID', $CandidateUserID);
+        $this->db->where('JobPostID', $JobPostID);
+        $query = $this->db->get('ssc_companyjobaction');
+
+        if ($query->num_rows() > 0) {
+            // Update record
+            $this->db->where('CandidateUserID', $CandidateUserID);
+            $this->db->where('JobPostID', $JobPostID);
+            $this->db->update('ssc_companyjobaction', ['CurrentState' => $CurrentState]);
+        } else {
+            // Insert record
+            $this->db->insert('ssc_companyjobaction', [
+                'CandidateUserID' => $CandidateUserID,
+                'JobPostID' => $JobPostID,
+                'CurrentState' => $CurrentState,
+                'CompanyEmployeeUserID' => $CompanyEmployeeUserID
+            ]);
+        }
+        return $this->db->affected_rows() > 0;
     }
 }

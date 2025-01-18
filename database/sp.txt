@@ -1,0 +1,1251 @@
+DELIMITER $$
+CREATE PROCEDURE `usp_M_GetCandidateListJobShort`(IN `_PageSize` INT, IN `_CurrentPage` INT, IN `_UserID` INT, IN `_Path` VARCHAR(255), IN `_SkillSearch` VARCHAR(255), IN `_Type` ENUM('All','Apply','View','Saved','Shortlisted','Invited','Hired','Accept','Decline','HiredDecline'), IN `_JobPostID` INT, IN `_StartSalary` DOUBLE, IN `_EndSalary` DOUBLE, IN `_DesignationIDS` TEXT, IN `_Sort` ENUM('Salary','Name','Modified'), IN `_SortByOrder` ENUM('ASC','DESC'), IN `_CityIDS` TEXT, IN `_JobSearch` VARCHAR(255))
+    NO SQL
+BEGIN
+  SET _JobPostID = IF(_JobPostID='-1',NULL,_JobPostID);
+  SET _UserID = IF(_UserID='-1',NULL,_UserID);
+  SET _SkillSearch = IF(_SkillSearch='',NULL,_SkillSearch);
+  SET _StartSalary = IF(_StartSalary='-1',NULL,_StartSalary);
+  SET _EndSalary = IF(_EndSalary='-1',NULL,_EndSalary);
+  SET _DesignationIDS = IF(_DesignationIDS='',NULL,_DesignationIDS);
+  SET _CityIDS = IF(_CityIDS='',NULL,_CityIDS);
+  SET @TimeZone = (SELECT TimeZone  FROM ssc_config Limit 1);
+  IF(@TimeZone = "") THEN SET @TimeZone = "+00:00"; END IF;
+  SET @Status = 1;
+    SET _JobSearch = IF(_JobSearch='',NULL,_JobSearch);
+  IF(_UserID IS NULL AND _JobPostID IS NULL) THEN SET @Status = NULL; END IF;
+  SET @CompanyID = (SELECT CompanyID FROM ssc_companyuser WHERE Status = 1 AND UserID = _UserID);
+IF(_Type="All") THEN
+  SET @Candidate_IDS = (SELECT GROUP_CONCAT(DISTINCT CD.UserID) FROM ssc_candidate CD
+              WHERE CD.Status = IFNULL(@Status,CD.Status));
+  IF(_SkillSearch IS NULL AND _StartSalary IS NULL AND _EndSalary IS NULL AND _DesignationIDS IS NULL AND _CityIDS IS NULL) THEN
+    SET @Skills = (SELECT GROUP_CONCAT(JS.SkillID) FROM ssc_jobskill JS 
+            INNER JOIN ssc_jobpost JP ON (JP.JobPostID = JS.JobPostID AND JP.UserID = @CompanyID AND JS.Status = 1)
+            LEFT JOIN ssc_skill S ON (S.SkillID = JS.SkillID AND S.Status = 1));
+    SET @Cities = (SELECT GROUP_CONCAT(CityID) FROM ssc_jobpost WHERE UserID = @CompanyID);
+    SET @Designations = (SELECT GROUP_CONCAT(DesignationID) FROM ssc_jobpost WHERE UserID = @CompanyID);  
+    IF(IFNULL(@Skills,'') != '')THEN
+      SET @Candidate_IDS = (SELECT GROUP_CONCAT(DISTINCT CD.UserID) FROM ssc_skill S
+            LEFT JOIN ssc_userskill US ON (S.SkillID = US.SkillID AND S.Status = 1)
+            LEFT JOIN ssc_candidate CD ON (US.UserID = CD.UserID AND US.Status = 1)
+            WHERE FIND_IN_SET(US.SkillID,@Skills));
+    ELSEIF(IFNULL(@Cities,'') != '') THEN
+      SET @Candidate_IDS = (SELECT GROUP_CONCAT(DISTINCT CD.UserID) FROM ssc_candidate CD
+              WHERE FIND_IN_SET(CD.CityID,@Cities));
+    ELSEIF(IFNULL(@Designations,'') != '') THEN
+      SET @Candidate_IDS = (SELECT GROUP_CONCAT(DISTINCT CD.UserID) FROM ssc_candidate CD
+              WHERE FIND_IN_SET(CD.DesignationID,@Designations));
+    END IF;
+  ELSE
+      SET @Desigantion_related_IDS = ( SELECT GROUP_CONCAT(DISTINCT CD.UserID) 
+                    FROM ssc_candidate CD
+                    LEFT JOIN ssc_useremployement UEMP ON (UEMP.UserID = CD.UserID AND UEMP.Status = 1)
+                    WHERE 
+                      FIND_IN_SET(IFNULL(UEMP.DesignationID,0),IFNULL(_DesignationIDS,IFNULL(UEMP.DesignationID,0))) AND 
+                      FIND_IN_SET(CD.UserID,@Candidate_IDS)
+                    );
+      SET @Skills_related_IDS = ( SELECT GROUP_CONCAT(DISTINCT CD.UserID) 
+              FROM ssc_candidate CD
+              LEFT JOIN ssc_userskill US ON (US.UserID = CD.UserID AND US.Status = 1)
+              LEFT JOIN ssc_skill S ON (S.SkillID = US.SkillID AND S.Status = 1)
+              WHERE 
+                IFNULL(S.SkillName,'') LIKE CONCAT("%",IFNULL(_SkillSearch,IFNULL(S.SkillName,'')),"%") AND
+                FIND_IN_SET(CD.UserID,@Desigantion_related_IDS)
+                );  
+      SET @Candidate_IDS = ( SELECT  GROUP_CONCAT(DISTINCT U.UserID) 
+              FROM ssc_user U
+              INNER JOIN ssc_candidate CD ON (CD.UserID = U.UserID AND CD.Status = IFNULL(@Status,CD.Status))
+              WHERE U.UserType='Candidate' AND
+                ( 
+                  IFNULL(_StartSalary,IFNULL(CD.Salary,0)) <= IFNULL(CD.Salary,0) AND 
+                  IFNULL(CD.Salary,0) <=IFNULL(_EndSalary,IFNULL(CD.Salary,0))
+                )AND
+                FIND_IN_SET(U.UserID,@Skills_related_IDS) AND 
+                FIND_IN_SET(CD.CityID,IFNULL(_CityIDS,CD.CityID))
+        );
+  END IF;
+  SET @COUNT = (SELECT  COUNT(DISTINCT CD.UserID) 
+              FROM ssc_candidate CD
+              WHERE 
+              FIND_IN_SET(CD.UserID,@Candidate_IDS)
+            );
+  IF(@COUNT > 0) THEN 
+  IF(_PageSize = -1) THEN SET _PageSize = @COUNT*_CurrentPage; END IF;
+  SET @rownum:=0;
+    SELECT AA.*,@rownum AS rowcount FROM (
+      SELECT V.*, @rownum := @rownum + 1 AS Rno FROM  ( 
+          SELECT 
+            DISTINCT U.UserID AS UserID,
+            IFNULL(U.EmailID,'') AS EmailID,
+            IFNULL(U.RegistrationType,'') AS RegistrationType,
+            IFNULL(U.FacebookID,'') AS FacebookID,
+            IFNULL(U.LinkedInID,'') AS LinkedInID,
+            IFNULL(U.TwitterID,'') AS TwitterID,
+            IFNULL(U.UserType,'') AS UserType,
+            IFNULL(U.MobileNo,'') AS MobileNo,
+            IFNULL(CD.IsWorkPermit,'') AS IsWorkPermit,
+            IFNULL(CD.AgeGroupID,'') AS AgeGroupID,
+            IFNULL(CD.FirstName,'') AS FirstName,
+            IFNULL(CD.LastName,'') AS LastName,
+            IF(IFNULL(CD.ProfilePic,'')='','',CONCAT(_Path,'assets/uploads/candidate/',CD.ProfilePic)) AS ProfilePic,
+            IFNULL(CD.ProfilePic,'') AS ProfilePicOrgName,
+            IF(IFNULL(CD.CVPath,'')='','',CONCAT(_Path,'assets/uploads/cv/',CD.CVPath)) AS CVPath,
+            IFNULL(CD.CVPath,'') AS CVName,
+            IFNULL(CD.CVPath,'') AS CVPathOrgName,
+            IFNULL(CD.Address,'') AS Address,
+            IFNULL(CD.CityID,'') AS CityID,
+            IFNULL(CT.CityName,'') AS CityName,
+            IFNULL(CD.Latitude,'') AS Latitude,
+            IFNULL(CD.Longitude,'') AS Longitude,
+            IFNULL(CD.Pincode,'') AS Pincode,
+            '' AS PermenantAddress,
+            (SELECT Fn_M_GetYearMonthsFromMonths(IFNULL(CD.Experience,0),'Year')) AS ExperienceYear,
+            (SELECT Fn_M_GetYearMonthsFromMonths(IFNULL(CD.Experience,0),'Month')) AS ExperienceMonth,
+            IFNULL((CD.Salary+0),0) AS Salary,
+            IFNULL(CD.BirthYear,'') AS BirthYear,
+            IFNULL(CD.Gender,'Male') AS Gender,
+            IFNULL(CD.OtherGender,'') AS OtherGender,
+            '' AS MaritualStatus,
+            IFNULL(CD.JobType,'') AS JobType,
+            IFNULL(CD.VisaStatus,'') AS VisaStatus,
+            IFNULL(CD.ProfileStatus,'') AS ProfileStatus,
+            IFNULL(CD.EthnicityID,'0') AS EthnicityID,
+            (SELECT IFNULL(E.EthnicityName,'') FROM ssc_ethnicity E WHERE CD.EthnicityID = E.EthnicityID) AS EthnicityName,
+            IFNULL(CD.StatusText,'') AS StatusText,
+            IFNULL(CD.ProfileSummary,'') AS ProfileSummary,
+            IFNULL(CD.CVHeadLine,'') AS CVHeadLine,
+            IFNULL(CD.IsPhysicalChallenged,'') AS IsPhysicalChallenged,
+            IFNULL(CD.IsExperience,'') AS IsExperience,
+            IFNULL(CD.OTP,'') AS OTP,
+            IFNULL(CD.IsOTPVerified,0) AS IsOTPVerified,
+            IFNULL(CD.OTPExpiredate,0) AS OTPExpiredate,
+            IFNULL(UEMP.OrganizationOther,'') AS CompanyName,
+            IFNULL(UEMP.DesignationID,'') AS DesignationID,
+            IFNULL(DES.Designation,'') AS Designation,
+            IFNULL(CD.HaveDrivingLicence,0) AS HaveDrivingLicence,
+            IFNULL(CD.IsWillingToRelocate,0) AS IsWillingToRelocate,
+            IFNULL(CD.ModifiedDate,IFNULL(CD.CreatedDate,'')) AS Modified,
+            1 as DefaultSearch,
+            (SELECT Fn_M_GetSkillsNameByUserID(U.UserID)) AS Skills,
+            IFNULL(CD.Status,0) AS Status
+          FROM  ssc_user U
+          INNER JOIN ssc_candidate CD ON (CD.UserID = U.UserID AND CD.Status = IFNULL(@Status,CD.Status))
+          LEFT JOIN ssc_cities CT ON (CT.CityID = CD.CityID AND CT.Status = 1)
+          LEFT JOIN ssc_useremployement UEMP ON (UEMP.UserID = CD.UserID AND UEMP.Status = 1 AND UEMP.IsPresent = 1)
+          LEFT JOIN ssc_designation DES ON (DES.DesignationID = UEMP.DesignationID AND DES.Status = 1)
+          WHERE
+            FIND_IN_SET(U.UserID,@Candidate_IDS) AND (IFNULL(CD.ProfileSummary,'') LIKE CONCAT("%",IFNULL(_JobSearch,IFNULL(CD.ProfileSummary,'')),"%") OR IFNULL(CD.CVHeadLine,'') LIKE CONCAT("%",IFNULL(_JobSearch,IFNULL(CD.CVHeadLine,'')),"%")) 
+      ) V 
+      ORDER BY  (CASE             
+        WHEN _Sort='Name' AND _SortByOrder = 'DESC' THEN V.FirstName 
+        WHEN _Sort='Salary' AND _SortByOrder = 'DESC' THEN (V.Salary+0) 
+        WHEN _Sort='Modified' AND _SortByOrder = 'DESC' THEN V.Modified 
+        ELSE V.DefaultSearch
+      END) DESC, 
+      (CASE 
+        WHEN _Sort='Name' AND _SortByOrder = 'ASC' THEN V.FirstName 
+        WHEN _Sort='Salary' AND _SortByOrder = 'ASC' THEN (V.Salary+0) 
+        WHEN _Sort='Modified' AND _SortByOrder = 'ASC' THEN V.Modified 
+        ELSE V.DefaultSearch
+      END) ASC 
+    ) AA
+    WHERE Rno BETWEEN (((_CurrentPage*_PageSize) - _PageSize)+1) AND (_CurrentPage*_PageSize);
+  ELSE 
+    SELECT Fn_M_getErrorMessage('candidate_listing_not_found') AS Message;
+  END IF;
+ELSE
+  SET @Skills_related_IDS = (
+              SELECT 
+                GROUP_CONCAT(DISTINCT CD.UserID) 
+              FROM
+                ssc_candidate CD
+              LEFT JOIN ssc_userskill US ON (US.UserID = CD.UserID AND US.Status = 1)
+              LEFT JOIN ssc_skill S ON(S.SkillID = US.SkillID AND S.Status = 1)
+              WHERE 
+                CD.Status = 1 AND 
+                IFNULL(S.SkillName,'') LIKE CONCAT("%",IFNULL(_SkillSearch,IFNULL(S.SkillName,'')),"%")
+                );
+  SET @Desigantion_related_IDS = (
+            SELECT 
+              GROUP_CONCAT(DISTINCT CD.UserID) 
+            FROM 
+              ssc_candidate CD
+
+            LEFT JOIN ssc_useremployement UEMP ON (UEMP.UserID = CD.UserID AND UEMP.Status = 1)
+            WHERE 
+              FIND_IN_SET(IFNULL(UEMP.DesignationID,0),IFNULL(_DesignationIDS,IFNULL(UEMP.DesignationID,0))) AND 
+              FIND_IN_SET(CD.UserID,@Skills_related_IDS)
+            );
+  IF(_Type="Saved") THEN
+    SET @COUNT = (SELECT COUNT(DISTINCT U.UserID) FROM ssc_jobsaved JS
+        INNER JOIN ssc_user U ON (U.UserID = JS.UserID AND U.Status = 1)
+        INNER JOIN ssc_candidate CD ON (CD.UserID = U.UserID AND CD.Status = 1)
+        WHERE
+            JS.JobPostID = _JobPostID AND
+            JS.Status = 1 AND 
+            ( 
+              IFNULL(_StartSalary,IFNULL(CD.Salary,0)) <= IFNULL(CD.Salary,0) AND 
+              IFNULL(CD.Salary,0) <=IFNULL(_EndSalary,IFNULL(CD.Salary,0))
+            ) AND
+            FIND_IN_SET(U.UserID,@Desigantion_related_IDS)  AND
+            FIND_IN_SET(CD.CityID,IFNULL(_CityIDS,CD.CityID))
+            );
+    IF(@COUNT > 0) THEN 
+        SET @rownum:=0;
+        SELECT AA.*,@rownum AS rowcount FROM (
+          SELECT V.*, @rownum := @rownum + 1 AS Rno FROM  ( 
+            SELECT 
+                DISTINCT U.UserID AS UserID,
+                IFNULL(U.EmailID,'') AS EmailID,
+                IFNULL(U.RegistrationType,'') AS RegistrationType,
+                IFNULL(U.FacebookID,'') AS FacebookID,
+                IFNULL(U.LinkedInID,'') AS LinkedInID,
+                IFNULL(U.TwitterID,'') AS TwitterID,
+                IFNULL(U.UserType,'') AS UserType,
+                IFNULL(U.MobileNo,'') AS MobileNo,
+                IFNULL(CD.IsWorkPermit,'') AS IsWorkPermit,
+                IFNULL(CD.AgeGroupID,'') AS AgeGroupID,
+                IFNULL(CD.FirstName,'') AS FirstName,
+                IFNULL(CD.LastName,'') AS LastName,
+                IF(IFNULL(CD.ProfilePic,'')='','',CONCAT(_Path,'assets/uploads/candidate/',CD.ProfilePic)) AS ProfilePic,
+                IFNULL(CD.ProfilePic,'') AS ProfilePicOrgName,
+                IF(IFNULL(CD.CVPath,'')='','',CONCAT(_Path,'assets/uploads/cv/',CD.CVPath)) AS CVPath,
+                IFNULL(CD.CVPath,'') AS CVPathOrgName,
+                IFNULL(CD.CVPath,'') AS CVName,
+                IFNULL(CD.Address,'') AS Address,
+                IFNULL(CD.CityID,'') AS CityID,
+                IFNULL(CT.CityName,'') AS CityName,
+                IFNULL(CD.Latitude,'') AS Latitude,
+                IFNULL(CD.Longitude,'') AS Longitude,
+                IFNULL(CD.Pincode,'') AS Pincode,
+                '' AS PermenantAddress,
+                (SELECT Fn_M_GetYearMonthsFromMonths(IFNULL(CD.Experience,0),'Year')) AS ExperienceYear,
+                (SELECT Fn_M_GetYearMonthsFromMonths(IFNULL(CD.Experience,0),'Month')) AS ExperienceMonth,
+                IFNULL(CD.Salary,0) AS Salary,
+                IFNULL(CD.BirthYear,'') AS BirthYear,
+                IFNULL(CD.Gender,'Male') AS Gender,
+                IFNULL(CD.OtherGender,'') AS OtherGender,
+                '' AS MaritualStatus,
+                IFNULL(CD.JobType,'') AS JobType,
+                IFNULL(CD.VisaStatus,'') AS VisaStatus,
+                IFNULL(CD.ProfileStatus,'') AS ProfileStatus,
+                IFNULL(CD.EthnicityID,'0') AS EthnicityID,
+                (SELECT IFNULL(E.EthnicityName,'') FROM ssc_ethnicity E WHERE CD.EthnicityID = E.EthnicityID) AS EthnicityName,
+                IFNULL(CD.StatusText,'') AS StatusText,
+                IFNULL(CD.ProfileSummary,'') AS ProfileSummary,
+                IFNULL(CD.CVHeadLine,'') AS CVHeadLine,
+                IFNULL(CD.IsPhysicalChallenged,'') AS IsPhysicalChallenged,
+                IFNULL(CD.IsExperience,'') AS IsExperience,
+                IFNULL(CD.IsOTPVerified,0) AS IsOTPVerified,
+                IFNULL(CD.OTPExpiredate,0) AS OTPExpiredate,
+                IFNULL(UEMP.OrganizationOther,'') AS CompanyName,
+                IFNULL(UEMP.DesignationID,'') AS DesignationID,
+                IFNULL(DES.Designation,'') AS Designation,
+                IFNULL(CD.HaveDrivingLicence,0) AS HaveDrivingLicence,
+                 IFNULL(CD.IsWillingToRelocate,0) AS IsWillingToRelocate,
+                IFNULL(CD.ModifiedDate,IFNULL(CD.CreatedDate,'')) AS Modified,
+                1 as DefaultSearch,
+                (SELECT Fn_M_GetSkillsNameByUserID(U.UserID)) AS Skills
+            FROM ssc_jobsaved JS
+            INNER JOIN ssc_user U ON (U.UserID = JS.UserID AND U.Status = 1)
+            INNER JOIN ssc_candidate CD ON (CD.UserID = U.UserID AND CD.Status = 1)
+            LEFT JOIN ssc_cities CT ON CT.CityID = CD.CityID
+            LEFT JOIN ssc_useremployement UEMP ON (UEMP.UserID = CD.UserID AND UEMP.IsPresent = 1 AND UEMP.IsPresent = 1)
+            LEFT JOIN ssc_designation DES ON (DES.DesignationID = UEMP.DesignationID)
+            WHERE
+              JS.JobPostID = _JobPostID AND
+              JS.Status = 1 AND 
+              ( 
+                IFNULL(_StartSalary,IFNULL(CD.Salary,0)) <= IFNULL(CD.Salary,0) AND 
+                IFNULL(CD.Salary,0) <=IFNULL(_EndSalary,IFNULL(CD.Salary,0))
+              ) AND
+              FIND_IN_SET(U.UserID,@Desigantion_related_IDS) AND
+              FIND_IN_SET(CD.CityID,IFNULL(_CityIDS,CD.CityID))
+              AND (IFNULL(CD.ProfileSummary,'') LIKE CONCAT("%",IFNULL(_JobSearch,IFNULL(CD.ProfileSummary,'')),"%") OR IFNULL(CD.CVHeadLine,'') LIKE CONCAT("%",IFNULL(_JobSearch,IFNULL(CD.CVHeadLine,'')),"%"))
+          ) V 
+            ORDER BY  (CASE             
+                WHEN _Sort='Name' AND _SortByOrder = 'DESC' THEN V.FirstName 
+                WHEN _Sort='Salary' AND _SortByOrder = 'DESC' THEN (V.Salary+0) 
+                WHEN _Sort='Modified' AND _SortByOrder = 'DESC' THEN V.Modified 
+                ELSE V.DefaultSearch
+            END) DESC, 
+            (CASE 
+                WHEN _Sort='Name' AND _SortByOrder = 'ASC' THEN V.FirstName 
+                WHEN _Sort='Salary' AND _SortByOrder = 'ASC' THEN (V.Salary+0) 
+                WHEN _Sort='Modified' AND _SortByOrder = 'ASC' THEN V.Modified 
+                ELSE V.DefaultSearch
+            END) ASC 
+        ) AA
+        WHERE Rno BETWEEN (((_CurrentPage*_PageSize) - _PageSize)+1) AND (_CurrentPage*_PageSize);
+    ELSE 
+        SELECT Fn_M_getErrorMessage('candidate_listing_not_found') AS Message;
+    END IF; 
+  ELSEIF(_Type="View") THEN
+    SET @COUNT = (SELECT COUNT(DISTINCT U.UserID) 
+      FROM ssc_companyjobaction CJA
+        INNER JOIN ssc_user U ON (U.UserID = CJA.CandidateUserID AND U.Status = 1)
+        INNER JOIN ssc_candidate CD ON (CD.UserID = U.UserID AND CD.Status = 1)
+        WHERE
+          CJA.Status = 1 AND 
+          CJA.View > 0 AND
+          CJA.JobPostID = _JobPostID AND
+          U.UserType='Candidate' AND
+          ( 
+            IFNULL(_StartSalary,IFNULL(CD.Salary,0)) <= IFNULL(CD.Salary,0) AND 
+            IFNULL(CD.Salary,0) <=IFNULL(_EndSalary,IFNULL(CD.Salary,0))
+          ) AND
+          FIND_IN_SET(U.UserID,@Desigantion_related_IDS) AND
+          FIND_IN_SET(CD.CityID,IFNULL(_CityIDS,CD.CityID))
+        );
+    IF(@COUNT > 0) THEN 
+      SET @rownum:=0;
+      SELECT AA.*,@rownum AS rowcount  FROM (
+        SELECT V.*, @rownum := @rownum + 1 AS Rno FROM  ( 
+          SELECT 
+              DISTINCT U.UserID AS UserID,
+              IFNULL(CJA.CompanyJobActionID,0) AS CompanyJobActionID,
+              IFNULL(DATE_FORMAT(CJA.InterviewScheduled,'%d-%m-%Y %H:%i'),'') AS InterviewScheduled,
+              IFNULL(CJA.CurrentState,'') AS CurrentState,
+              IFNULL(CJA.Reason,'') AS Reason,
+              IFNULL(U.EmailID,'') AS EmailID,
+              IFNULL(U.RegistrationType,'') AS RegistrationType,
+              IFNULL(U.FacebookID,'') AS FacebookID,
+              IFNULL(U.LinkedInID,'') AS LinkedInID,
+              IFNULL(U.TwitterID,'') AS TwitterID,
+              IFNULL(U.UserType,'') AS UserType,
+              IFNULL(U.MobileNo,'') AS MobileNo,
+              IFNULL(CD.IsWorkPermit,'') AS IsWorkPermit,
+              IFNULL(CD.AgeGroupID,'') AS AgeGroupID,
+              IFNULL(CD.FirstName,'') AS FirstName,
+              IFNULL(CD.LastName,'') AS LastName,
+              IF(IFNULL(CD.ProfilePic,'')='','',CONCAT(_Path,'assets/uploads/candidate/',CD.ProfilePic)) AS ProfilePic,
+              IFNULL(CD.ProfilePic,'') AS ProfilePicOrgName,
+              IF(IFNULL(CD.CVPath,'')='','',CONCAT(_Path,'assets/uploads/cv/',CD.CVPath)) AS CVPath,
+              IFNULL(CD.CVPath,'') AS CVPathOrgName,
+              IFNULL(CD.CVPath,'') AS CVName,
+              IFNULL(CD.Address,'') AS Address,
+              IFNULL(CD.CityID,'') AS CityID,
+              IFNULL(CT.CityName,'') AS CityName,
+              IFNULL(CD.Latitude,'') AS Latitude,
+              IFNULL(CD.Longitude,'') AS Longitude,
+              IFNULL(CD.Pincode,'') AS Pincode,
+              '' AS PermenantAddress,
+              (SELECT Fn_M_GetYearMonthsFromMonths(IFNULL(CD.Experience,0),'Year')) AS ExperienceYear,
+              (SELECT Fn_M_GetYearMonthsFromMonths(IFNULL(CD.Experience,0),'Month')) AS ExperienceMonth,
+              IFNULL(CD.Salary,0) AS Salary,
+              IFNULL(CD.BirthYear,'') AS BirthYear,
+              IFNULL(CD.Gender,'Male') AS Gender,
+              IFNULL(CD.OtherGender,'') AS OtherGender,
+              '' AS MaritualStatus,
+              IFNULL(CD.JobType,'') AS JobType,
+              IFNULL(CD.VisaStatus,'') AS VisaStatus,
+              IFNULL(CD.ProfileStatus,'') AS ProfileStatus,
+              IFNULL(CD.EthnicityID,'0') AS EthnicityID,
+              (SELECT IFNULL(E.EthnicityName,'') FROM ssc_ethnicity E WHERE CD.EthnicityID = E.EthnicityID) AS EthnicityName,
+              IFNULL(CD.StatusText,'') AS StatusText,
+              IFNULL(CD.ProfileSummary,'') AS ProfileSummary,
+              IFNULL(CD.CVHeadLine,'') AS CVHeadLine,
+              IFNULL(CD.IsPhysicalChallenged,'') AS IsPhysicalChallenged,
+              IFNULL(CD.IsExperience,'') AS IsExperience,
+              IFNULL(CD.IsOTPVerified,0) AS IsOTPVerified,
+              IFNULL(CD.OTPExpiredate,0) AS OTPExpiredate,
+              IFNULL(CD.HaveDrivingLicence,0) AS HaveDrivingLicence,
+              IFNULL(CD.IsWillingToRelocate,0) AS IsWillingToRelocate,
+              IFNULL(UEMP.OrganizationOther,'') AS CompanyName,
+              IFNULL(UEMP.DesignationID,'') AS DesignationID,
+              IFNULL(DES.Designation,'') AS Designation,
+              IFNULL(CJA.View,0) AS View,
+              IFNULL(CJA.Applied,0) AS Applied,
+              IFNULL(CJA.ShortListed,0) AS ShortListed,
+              IFNULL(CJA.Invited,0) AS Invited,
+              IF(IFNULL(CJA.Invited,0)=5,1,0) AS IsHired,
+              IFNULL(CD.ModifiedDate,IFNULL(CD.CreatedDate,'')) AS Modified,
+              1 as DefaultSearch,
+              (SELECT Fn_M_GetSkillsNameByUserID(U.UserID)) AS Skills
+          FROM ssc_companyjobaction CJA
+          INNER JOIN ssc_user U ON (U.UserID = CJA.CandidateUserID AND U.Status = 1)
+          INNER JOIN ssc_candidate CD ON (CD.UserID = U.UserID AND CD.Status = 1)
+          LEFT JOIN ssc_cities CT ON CT.CityID = CD.CityID
+          LEFT JOIN ssc_useremployement UEMP ON (UEMP.UserID = CD.UserID AND UEMP.Status = 1 AND UEMP.IsPresent = 1)
+          LEFT JOIN ssc_designation DES ON (DES.DesignationID = UEMP.DesignationID)
+          WHERE
+            CJA.Status = 1 AND 
+            CJA.View > 0 AND
+            CJA.JobPostID = _JobPostID AND 
+            FIND_IN_SET(CD.CityID,IFNULL(_CityIDS,CD.CityID)) AND
+            U.UserType='Candidate' AND
+            ( 
+              IFNULL(_StartSalary,IFNULL(CD.Salary,0)) <= IFNULL(CD.Salary,0) AND 
+              IFNULL(CD.Salary,0) <=IFNULL(_EndSalary,IFNULL(CD.Salary,0))
+            ) AND 
+            FIND_IN_SET(U.UserID,@Desigantion_related_IDS)
+            AND (IFNULL(CD.ProfileSummary,'') LIKE CONCAT("%",IFNULL(_JobSearch,IFNULL(CD.ProfileSummary,'')),"%") OR IFNULL(CD.CVHeadLine,'') LIKE CONCAT("%",IFNULL(_JobSearch,IFNULL(CD.CVHeadLine,'')),"%"))
+        ) V 
+        ORDER BY  (CASE             
+            WHEN _Sort='Name' AND _SortByOrder = 'DESC' THEN V.FirstName 
+            WHEN _Sort='Salary' AND _SortByOrder = 'DESC' THEN (V.Salary+0) 
+            WHEN _Sort='Modified' AND _SortByOrder = 'DESC' THEN V.Modified 
+            ELSE V.DefaultSearch
+        END) DESC, 
+        (CASE 
+            WHEN _Sort='Name' AND _SortByOrder = 'ASC' THEN V.FirstName 
+            WHEN _Sort='Salary' AND _SortByOrder = 'ASC' THEN (V.Salary+0) 
+            WHEN _Sort='Modified' AND _SortByOrder = 'ASC' THEN V.Modified 
+            ELSE V.DefaultSearch
+        END) ASC   
+      ) AA
+      WHERE Rno BETWEEN (((_CurrentPage*_PageSize) - _PageSize)+1) AND (_CurrentPage*_PageSize);
+    ELSE 
+        SELECT Fn_M_getErrorMessage('candidate_listing_not_found') AS Message;
+    END IF; 
+  ELSEIF(_Type="Shortlisted") THEN
+    SET @COUNT = (SELECT COUNT(DISTINCT U.UserID)
+              FROM ssc_companyjobaction CJA
+            INNER JOIN ssc_user U ON (CJA.CandidateUserID = U.UserID)
+            INNER JOIN ssc_candidate CD ON (CD.UserID = U.UserID)
+            WHERE CJA.status!=0
+            AND CJA.ShortListed = 1
+            AND U.UserType='Candidate'
+            AND CJA.JobPostID= _JobPostID
+            AND
+              ( 
+                IFNULL(_StartSalary,IFNULL(CD.Salary,0)) <= IFNULL(CD.Salary,0) AND 
+                IFNULL(CD.Salary,0) <=IFNULL(_EndSalary,IFNULL(CD.Salary,0))
+              ) AND
+              FIND_IN_SET(CD.CityID,IFNULL(_CityIDS,CD.CityID)) AND
+              FIND_IN_SET(U.UserID,@Desigantion_related_IDS)
+            );
+    IF(@COUNT > 0) THEN 
+        SET @rownum:=0;
+        SELECT AA.*,@rownum AS rowcount  FROM (
+          SELECT V.*, @rownum := @rownum + 1 AS Rno FROM  ( 
+                SELECT 
+                    DISTINCT CJA.CompanyJobActionID AS CompanyJobActionID,
+                  IFNULL(DATE_FORMAT(CJA.InterviewScheduled,'%d-%m-%Y %H:%i'),'') AS InterviewScheduled,
+                    IFNULL(CJA.CurrentState,'') AS CurrentState,
+                    IFNULL(CJA.Reason,'') AS Reason,
+                    IFNULL(U.UserID,'') AS UserID,
+                    IFNULL(U.EmailID,'') AS EmailID,
+                    IFNULL(U.RegistrationType,'') AS RegistrationType,
+                    IFNULL(U.FacebookID,'') AS FacebookID,
+                    IFNULL(U.LinkedInID,'') AS LinkedInID,
+                    IFNULL(U.TwitterID,'') AS TwitterID,
+                    IFNULL(U.UserType,'') AS UserType,
+                    IFNULL(U.MobileNo,'') AS MobileNo,
+                    IFNULL(CD.IsWorkPermit,'') AS IsWorkPermit,
+                    IFNULL(CD.AgeGroupID,'') AS AgeGroupID,
+                    IFNULL(CD.FirstName,'') AS FirstName,
+                    IFNULL(CD.LastName,'') AS LastName,
+                    IF(IFNULL(CD.ProfilePic,'')='','',CONCAT(_Path,'assets/uploads/candidate/',CD.ProfilePic)) AS ProfilePic,
+                    IFNULL(CD.ProfilePic,'') AS ProfilePicOrgName,
+                    IF(IFNULL(CD.CVPath,'')='','',CONCAT(_Path,'assets/uploads/cv/',CD.CVPath)) AS CVPath,
+                    IFNULL(CD.CVPath,'') AS CVPathOrgName,
+                    IFNULL(CD.CVPath,'') AS CVName,
+                    IFNULL(CD.Address,'') AS Address,
+                    IFNULL(CD.CityID,'') AS CityID,
+                    IFNULL(CT.CityName,'') AS CityName,
+                    IFNULL(CD.Latitude,'') AS Latitude,
+                    IFNULL(CD.Longitude,'') AS Longitude,
+                    IFNULL(CD.Pincode,'') AS Pincode,
+                    '' AS PermenantAddress,
+                    (SELECT Fn_M_GetYearMonthsFromMonths(IFNULL(CD.Experience,0),'Year')) AS ExperienceYear,
+                    (SELECT Fn_M_GetYearMonthsFromMonths(IFNULL(CD.Experience,0),'Month')) AS ExperienceMonth,
+                    IFNULL(CD.Salary,0) AS Salary,
+                    IFNULL(CD.BirthYear,'') AS BirthYear,
+                    IFNULL(CD.Gender,'Male') AS Gender,
+                    IFNULL(CD.OtherGender,'') AS OtherGender,
+                    '' AS MaritualStatus,
+                  IFNULL(CD.JobType,'') AS JobType,
+                  IFNULL(CD.VisaStatus,'') AS VisaStatus,
+              IFNULL(CD.ProfileStatus,'') AS ProfileStatus,
+                  IFNULL(CD.EthnicityID,'0') AS EthnicityID,
+                  (SELECT IFNULL(E.EthnicityName,'') FROM ssc_ethnicity E WHERE CD.EthnicityID = E.EthnicityID) AS EthnicityName,
+                    IFNULL(CD.StatusText,'') AS StatusText,
+                    IFNULL(CD.ProfileSummary,'') AS ProfileSummary,
+                    IFNULL(CD.CVHeadLine,'') AS CVHeadLine,
+                    IFNULL(CD.IsPhysicalChallenged,'') AS IsPhysicalChallenged,
+                    IFNULL(CD.IsExperience,'') AS IsExperience,
+                    IFNULL(CD.IsOTPVerified,0) AS IsOTPVerified,
+                    IFNULL(CD.OTPExpiredate,0) AS OTPExpiredate,
+                    IFNULL(CD.HaveDrivingLicence,0) AS HaveDrivingLicence,
+                IFNULL(CD.IsWillingToRelocate,0) AS IsWillingToRelocate,
+                    IFNULL(UEMP.OrganizationOther,'') AS CompanyName,
+                    IFNULL(UEMP.DesignationID,'') AS DesignationID,
+                    IFNULL(DES.Designation,'') AS Designation,
+                    IFNULL(CJA.View,0) AS View,
+                    IFNULL(CJA.Applied,0) AS Applied,
+                    IFNULL(CJA.ShortListed,0) AS ShortListed,
+                    IFNULL(CJA.Invited,0) AS Invited,
+                    IF(IFNULL(CJA.Invited,0)=5,1,0) AS IsHired,
+                    IFNULL(CD.ModifiedDate,IFNULL(CD.CreatedDate,'')) AS Modified,
+                    1 as DefaultSearch,
+                    (SELECT Fn_M_GetSkillsNameByUserID(U.UserID)) AS Skills
+              FROM ssc_companyjobaction CJA
+            INNER JOIN ssc_user U ON (CJA.CandidateUserID = U.UserID)
+            INNER JOIN ssc_candidate CD ON (CD.UserID = U.UserID)
+                    LEFT JOIN ssc_cities CT ON CT.CityID = CD.CityID
+                    LEFT JOIN ssc_useremployement UEMP ON (UEMP.UserID = CD.UserID AND UEMP.Status = 1 AND UEMP.IsPresent = 1)
+                    LEFT JOIN ssc_designation DES ON (DES.DesignationID = UEMP.DesignationID)
+            WHERE CJA.status!=0
+            AND CJA.ShortListed = 1 
+            AND U.UserType='Candidate'
+            AND CJA.JobPostID= _JobPostID
+            AND
+              ( 
+                IFNULL(_StartSalary,IFNULL(CD.Salary,0)) <= IFNULL(CD.Salary,0) AND 
+                IFNULL(CD.Salary,0) <=IFNULL(_EndSalary,IFNULL(CD.Salary,0))
+              ) AND
+              FIND_IN_SET(CD.CityID,IFNULL(_CityIDS,CD.CityID)) AND
+              FIND_IN_SET(U.UserID,@Desigantion_related_IDS)
+              AND (IFNULL(CD.ProfileSummary,'') LIKE CONCAT("%",IFNULL(_JobSearch,IFNULL(CD.ProfileSummary,'')),"%") OR IFNULL(CD.CVHeadLine,'') LIKE CONCAT("%",IFNULL(_JobSearch,IFNULL(CD.CVHeadLine,'')),"%"))
+            ) V 
+              ORDER BY  (CASE             
+                    WHEN _Sort='Name' AND _SortByOrder = 'DESC' THEN V.FirstName 
+                    WHEN _Sort='Salary' AND _SortByOrder = 'DESC' THEN (V.Salary+0) 
+                    WHEN _Sort='Modified' AND _SortByOrder = 'DESC' THEN V.Modified 
+                    ELSE V.DefaultSearch
+                END) DESC, 
+                (CASE 
+                    WHEN _Sort='Name' AND _SortByOrder = 'ASC' THEN V.FirstName 
+                    WHEN _Sort='Salary' AND _SortByOrder = 'ASC' THEN (V.Salary+0) 
+                    WHEN _Sort='Modified' AND _SortByOrder = 'ASC' THEN V.Modified 
+                    ELSE V.DefaultSearch
+                END) ASC    
+          ) AA
+        WHERE Rno BETWEEN (((_CurrentPage*_PageSize) - _PageSize)+1) AND (_CurrentPage*_PageSize);
+    ELSE 
+        SELECT Fn_M_getErrorMessage('candidate_listing_not_found') AS Message;
+    END IF; 
+  ELSEIF(_Type="Invited") THEN
+    SET @COUNT = (SELECT COUNT(DISTINCT U.UserID)
+              FROM ssc_companyjobaction CJA 
+            INNER JOIN ssc_user U ON (CJA.CandidateUserID = U.UserID)
+            INNER JOIN ssc_candidate CD ON (CD.UserID = U.UserID)
+            WHERE CJA.status!=0
+            AND CJA.Invited > 0
+            AND U.UserType='Candidate'
+                                    AND CJA.JobPostID= _JobPostID
+            AND
+              ( 
+                IFNULL(_StartSalary,IFNULL(CD.Salary,0)) <= IFNULL(CD.Salary,0) AND 
+                IFNULL(CD.Salary,0) <=IFNULL(_EndSalary,IFNULL(CD.Salary,0))
+              ) AND
+              FIND_IN_SET(CD.CityID,IFNULL(_CityIDS,CD.CityID)) AND
+              FIND_IN_SET(U.UserID,@Desigantion_related_IDS)
+            );
+    IF(@COUNT > 0) THEN 
+        SET @rownum:=0;
+        SELECT AA.*,@rownum AS rowcount  FROM (
+          SELECT V.*, @rownum := @rownum + 1 AS Rno FROM  ( 
+                SELECT 
+                    DISTINCT CJA.CompanyJobActionID AS CompanyJobActionID,
+                  IFNULL(DATE_FORMAT(CJA.InterviewScheduled,'%d-%m-%Y %H:%i'),'') AS InterviewScheduled,
+                    IFNULL(CJA.CurrentState,'') AS CurrentState,
+                    IFNULL(CJA.Reason,'') AS Reason,
+                    IFNULL(U.UserID,'') AS UserID,
+                    IFNULL(U.EmailID,'') AS EmailID,
+                    IFNULL(U.RegistrationType,'') AS RegistrationType,
+                    IFNULL(U.FacebookID,'') AS FacebookID,
+                    IFNULL(U.LinkedInID,'') AS LinkedInID,
+                    IFNULL(U.TwitterID,'') AS TwitterID,
+                    IFNULL(U.UserType,'') AS UserType,
+                    IFNULL(U.MobileNo,'') AS MobileNo,
+                    IFNULL(CD.IsWorkPermit,'') AS IsWorkPermit,
+                    IFNULL(CD.AgeGroupID,'') AS AgeGroupID,
+                    IFNULL(CD.FirstName,'') AS FirstName,
+                    IFNULL(CD.LastName,'') AS LastName,
+                    IF(IFNULL(CD.ProfilePic,'')='','',CONCAT(_Path,'assets/uploads/candidate/',CD.ProfilePic)) AS ProfilePic,
+                    IFNULL(CD.ProfilePic,'') AS ProfilePicOrgName,
+                    IF(IFNULL(CD.CVPath,'')='','',CONCAT(_Path,'assets/uploads/cv/',CD.CVPath)) AS CVPath,
+                    IFNULL(CD.CVPath,'') AS CVPathOrgName,
+                    IFNULL(CD.CVPath,'') AS CVName,
+                    IFNULL(CD.Address,'') AS Address,
+                    IFNULL(CD.CityID,'') AS CityID,
+                    IFNULL(CT.CityName,'') AS CityName,
+                    IFNULL(CD.Latitude,'') AS Latitude,
+                    IFNULL(CD.Longitude,'') AS Longitude,
+                    IFNULL(CD.Pincode,'') AS Pincode,
+                    '' AS PermenantAddress,
+                    (SELECT Fn_M_GetYearMonthsFromMonths(IFNULL(CD.Experience,0),'Year')) AS ExperienceYear,
+                    (SELECT Fn_M_GetYearMonthsFromMonths(IFNULL(CD.Experience,0),'Month')) AS ExperienceMonth,
+
+                    IFNULL(CD.Salary,0) AS Salary,
+                    IFNULL(CD.BirthYear,'') AS BirthYear,
+                    IFNULL(CD.Gender,'Male') AS Gender,
+                    IFNULL(CD.OtherGender,'') AS OtherGender,
+                    '' AS MaritualStatus,
+                  IFNULL(CD.JobType,'') AS JobType,
+                  IFNULL(CD.VisaStatus,'') AS VisaStatus,
+              IFNULL(CD.ProfileStatus,'') AS ProfileStatus,
+                  IFNULL(CD.EthnicityID,'0') AS EthnicityID,
+                  (SELECT IFNULL(E.EthnicityName,'') FROM ssc_ethnicity E WHERE CD.EthnicityID = E.EthnicityID) AS EthnicityName,
+                    IFNULL(CD.StatusText,'') AS StatusText,
+                    IFNULL(CD.ProfileSummary,'') AS ProfileSummary,
+                    IFNULL(CD.CVHeadLine,'') AS CVHeadLine,
+                    IFNULL(CD.IsPhysicalChallenged,'') AS IsPhysicalChallenged,
+                    IFNULL(CD.IsExperience,'') AS IsExperience,
+                    IFNULL(CD.IsOTPVerified,0) AS IsOTPVerified,
+                    IFNULL(CD.OTPExpiredate,0) AS OTPExpiredate,
+                    IFNULL(CD.HaveDrivingLicence,0) AS HaveDrivingLicence,
+              IFNULL(CD.IsWillingToRelocate,0) AS IsWillingToRelocate,
+                    IFNULL(UEMP.OrganizationOther,'') AS CompanyName,
+                    IFNULL(UEMP.DesignationID,'') AS DesignationID,
+                    IFNULL(DES.Designation,'') AS Designation,
+                    IFNULL(CJA.View,0) AS View,
+                    IFNULL(CJA.Applied,0) AS Applied,
+                    IFNULL(CJA.ShortListed,0) AS ShortListed,
+                    IFNULL(CJA.Invited,0) AS Invited,
+                    IF(IFNULL(CJA.Invited,0)=5,1,0) AS IsHired,
+                    IFNULL(CD.ModifiedDate,IFNULL(CD.CreatedDate,'')) AS Modified,
+                    1 as DefaultSearch,
+                    (SELECT Fn_M_GetSkillsNameByUserID(U.UserID)) AS Skills
+                FROM ssc_companyjobaction CJA 
+            INNER JOIN ssc_user U ON (CJA.CandidateUserID = U.UserID)
+            INNER JOIN ssc_candidate CD ON (CD.UserID = U.UserID)
+                    LEFT JOIN ssc_cities CT ON CT.CityID = CD.CityID
+                    LEFT JOIN ssc_useremployement UEMP ON (UEMP.UserID = CD.UserID AND UEMP.Status = 1 AND UEMP.IsPresent = 1)
+                    LEFT JOIN ssc_designation DES ON (DES.DesignationID = UEMP.DesignationID)
+            WHERE CJA.status!=0
+            AND U.UserType='Candidate'
+            AND CJA.Invited > 0
+                                    AND CJA.JobPostID= _JobPostID
+            AND
+              ( 
+                IFNULL(_StartSalary,IFNULL(CD.Salary,0)) <= IFNULL(CD.Salary,0) AND 
+                IFNULL(CD.Salary,0) <=IFNULL(_EndSalary,IFNULL(CD.Salary,0))
+              ) AND
+              FIND_IN_SET(CD.CityID,IFNULL(_CityIDS,CD.CityID)) AND
+              FIND_IN_SET(U.UserID,@Desigantion_related_IDS)
+              AND (IFNULL(CD.ProfileSummary,'') LIKE CONCAT("%",IFNULL(_JobSearch,IFNULL(CD.ProfileSummary,'')),"%") OR IFNULL(CD.CVHeadLine,'') LIKE CONCAT("%",IFNULL(_JobSearch,IFNULL(CD.CVHeadLine,'')),"%"))
+            ) V 
+              ORDER BY  (CASE             
+                    WHEN _Sort='Name' AND _SortByOrder = 'DESC' THEN V.FirstName 
+                    WHEN _Sort='Salary' AND _SortByOrder = 'DESC' THEN (V.Salary+0) 
+                    WHEN _Sort='Modified' AND _SortByOrder = 'DESC' THEN V.Modified 
+                    ELSE V.DefaultSearch
+                END) DESC, 
+                (CASE 
+                    WHEN _Sort='Name' AND _SortByOrder = 'ASC' THEN V.FirstName 
+                    WHEN _Sort='Salary' AND _SortByOrder = 'ASC' THEN (V.Salary+0) 
+                    WHEN _Sort='Modified' AND _SortByOrder = 'ASC' THEN V.Modified 
+                    ELSE V.DefaultSearch
+                END) ASC   
+          ) AA
+        WHERE Rno BETWEEN (((_CurrentPage*_PageSize) - _PageSize)+1) AND (_CurrentPage*_PageSize);
+    ELSE 
+        SELECT Fn_M_getErrorMessage('candidate_listing_not_found') AS Message;
+    END IF; 
+  ELSEIF(_Type="Accept") THEN
+    SET @COUNT = (SELECT COUNT(DISTINCT U.UserID)
+              FROM ssc_companyjobaction CJA 
+            INNER JOIN ssc_user U ON (CJA.CandidateUserID = U.UserID)
+            INNER JOIN ssc_candidate CD ON (CD.UserID = U.UserID)
+            WHERE CJA.status!=0
+            AND U.UserType='Candidate'
+            AND CJA.CurrentState='5'
+                        AND CJA.JobPostID= _JobPostID
+            AND
+              ( 
+                IFNULL(_StartSalary,IFNULL(CD.Salary,0)) <= IFNULL(CD.Salary,0) AND 
+                IFNULL(CD.Salary,0) <=IFNULL(_EndSalary,IFNULL(CD.Salary,0))
+              ) AND
+              FIND_IN_SET(CD.CityID,IFNULL(_CityIDS,CD.CityID)) AND
+              FIND_IN_SET(U.UserID,@Desigantion_related_IDS)
+            );
+    IF(@COUNT > 0) THEN 
+        SET @rownum:=0;
+        SELECT AA.*,@rownum AS rowcount  FROM (
+          SELECT V.*, @rownum := @rownum + 1 AS Rno FROM  ( 
+                SELECT 
+                    DISTINCT CJA.CompanyJobActionID AS CompanyJobActionID,
+                  IFNULL(DATE_FORMAT(CJA.InterviewScheduled,'%d-%m-%Y %H:%i'),'') AS InterviewScheduled,
+                    IFNULL(CJA.CurrentState,'') AS CurrentState,
+                    IFNULL(CJA.Reason,'') AS Reason,
+                    IFNULL(U.UserID,'') AS UserID,
+                    IFNULL(U.EmailID,'') AS EmailID,
+                    IFNULL(U.RegistrationType,'') AS RegistrationType,
+                    IFNULL(U.FacebookID,'') AS FacebookID,
+                    IFNULL(U.LinkedInID,'') AS LinkedInID,
+                    IFNULL(U.TwitterID,'') AS TwitterID,
+                    IFNULL(U.UserType,'') AS UserType,
+                    IFNULL(U.MobileNo,'') AS MobileNo,
+                    IFNULL(CD.IsWorkPermit,'') AS IsWorkPermit,
+                    IFNULL(CD.AgeGroupID,'') AS AgeGroupID,
+                    IFNULL(CD.FirstName,'') AS FirstName,
+                    IFNULL(CD.LastName,'') AS LastName,
+                    IF(IFNULL(CD.ProfilePic,'')='','',CONCAT(_Path,'assets/uploads/candidate/',CD.ProfilePic)) AS ProfilePic,
+                    IFNULL(CD.ProfilePic,'') AS ProfilePicOrgName,
+                    IF(IFNULL(CD.CVPath,'')='','',CONCAT(_Path,'assets/uploads/cv/',CD.CVPath)) AS CVPath,
+                    IFNULL(CD.CVPath,'') AS CVPathOrgName,
+                    IFNULL(CD.CVPath,'') AS CVName,
+                    IFNULL(CD.Address,'') AS Address,
+                    IFNULL(CD.CityID,'') AS CityID,
+                    IFNULL(CT.CityName,'') AS CityName,
+                    IFNULL(CD.Latitude,'') AS Latitude,
+                    IFNULL(CD.Longitude,'') AS Longitude,
+                    IFNULL(CD.Pincode,'') AS Pincode,
+                    IFNULL(CD.HaveDrivingLicence,0) AS HaveDrivingLicence,
+                IFNULL(CD.IsWillingToRelocate,0) AS IsWillingToRelocate,
+                    '' AS PermenantAddress,
+                    (SELECT Fn_M_GetYearMonthsFromMonths(IFNULL(CD.Experience,0),'Year')) AS ExperienceYear,
+                    (SELECT Fn_M_GetYearMonthsFromMonths(IFNULL(CD.Experience,0),'Month')) AS ExperienceMonth,
+                    IFNULL(CD.Salary,0) AS Salary,
+                    IFNULL(CD.BirthYear,'') AS BirthYear,
+                    IFNULL(CD.Gender,'Male') AS Gender,
+                    IFNULL(CD.OtherGender,'') AS OtherGender,
+                    '' AS MaritualStatus,
+                  IFNULL(CD.JobType,'') AS JobType,
+                  IFNULL(CD.VisaStatus,'') AS VisaStatus,
+              IFNULL(CD.ProfileStatus,'') AS ProfileStatus,
+                  IFNULL(CD.EthnicityID,'0') AS EthnicityID,
+                  (SELECT IFNULL(E.EthnicityName,'') FROM ssc_ethnicity E WHERE CD.EthnicityID = E.EthnicityID) AS EthnicityName,
+                    IFNULL(CD.StatusText,'') AS StatusText,
+                    IFNULL(CD.ProfileSummary,'') AS ProfileSummary,
+                    IFNULL(CD.CVHeadLine,'') AS CVHeadLine,
+                    IFNULL(CD.IsPhysicalChallenged,'') AS IsPhysicalChallenged,
+                    IFNULL(CD.IsExperience,'') AS IsExperience,
+                    IFNULL(CD.IsOTPVerified,0) AS IsOTPVerified,
+                    IFNULL(CD.OTPExpiredate,0) AS OTPExpiredate,
+                    IFNULL(UEMP.OrganizationOther,'') AS CompanyName,
+                    IFNULL(UEMP.DesignationID,'') AS DesignationID,
+                    IFNULL(DES.Designation,'') AS Designation,
+                    IFNULL(CJA.View,0) AS View,
+                    IFNULL(CJA.Applied,0) AS Applied,
+                    IFNULL(CJA.ShortListed,0) AS ShortListed,
+                    IFNULL(CJA.Invited,0) AS Invited,
+                    IF(IFNULL(CJA.Invited,0)=5,1,0) AS IsHired,
+                    IFNULL(CD.ModifiedDate,IFNULL(CD.CreatedDate,'')) AS Modified,
+                    1 as DefaultSearch,
+                    (SELECT Fn_M_GetSkillsNameByUserID(U.UserID)) AS Skills
+                FROM ssc_companyjobaction CJA 
+            INNER JOIN ssc_user U ON (CJA.CandidateUserID = U.UserID)
+            INNER JOIN ssc_candidate CD ON (CD.UserID = U.UserID)
+                    LEFT JOIN ssc_cities CT ON CT.CityID = CD.CityID
+                    LEFT JOIN ssc_useremployement UEMP ON (UEMP.UserID = CD.UserID AND UEMP.Status = 1 AND UEMP.IsPresent = 1)
+                    LEFT JOIN ssc_designation DES ON (DES.DesignationID = UEMP.DesignationID)
+            WHERE CJA.status!=0
+            AND U.UserType='Candidate'
+            AND CJA.CurrentState='5'
+                        AND CJA.JobPostID= _JobPostID
+            AND
+              ( 
+                IFNULL(_StartSalary,IFNULL(CD.Salary,0)) <= IFNULL(CD.Salary,0) AND 
+                IFNULL(CD.Salary,0) <=IFNULL(_EndSalary,IFNULL(CD.Salary,0))
+              ) AND
+              FIND_IN_SET(CD.CityID,IFNULL(_CityIDS,CD.CityID)) AND
+              FIND_IN_SET(U.UserID,@Desigantion_related_IDS)
+              AND (IFNULL(CD.ProfileSummary,'') LIKE CONCAT("%",IFNULL(_JobSearch,IFNULL(CD.ProfileSummary,'')),"%") OR IFNULL(CD.CVHeadLine,'') LIKE CONCAT("%",IFNULL(_JobSearch,IFNULL(CD.CVHeadLine,'')),"%"))
+            ) V 
+              ORDER BY  (CASE             
+                    WHEN _Sort='Name' AND _SortByOrder = 'DESC' THEN V.FirstName 
+                    WHEN _Sort='Salary' AND _SortByOrder = 'DESC' THEN (V.Salary+0) 
+                    WHEN _Sort='Modified' AND _SortByOrder = 'DESC' THEN V.Modified 
+                    ELSE V.DefaultSearch
+                END) DESC, 
+                (CASE 
+                    WHEN _Sort='Name' AND _SortByOrder = 'ASC' THEN V.FirstName 
+                    WHEN _Sort='Salary' AND _SortByOrder = 'ASC' THEN (V.Salary+0) 
+                    WHEN _Sort='Modified' AND _SortByOrder = 'ASC' THEN V.Modified 
+                    ELSE V.DefaultSearch
+                END) ASC    
+          ) AA
+        WHERE Rno BETWEEN (((_CurrentPage*_PageSize) - _PageSize)+1) AND (_CurrentPage*_PageSize);
+    ELSE 
+        SELECT Fn_M_getErrorMessage('candidate_listing_not_found') AS Message;
+    END IF; 
+
+  ELSEIF(_Type="Hired") THEN
+    SET @COUNT = (SELECT COUNT(DISTINCT U.UserID)
+              FROM ssc_companyjobaction CJA 
+            INNER JOIN ssc_user U ON (CJA.CandidateUserID = U.UserID)
+            INNER JOIN ssc_candidate CD ON (CD.UserID = U.UserID)
+            WHERE CJA.status!=0
+            AND U.UserType='Candidate'
+            AND CJA.CurrentState='5'
+            AND CJA.Invited = '5'
+            AND CJA.JobPostID= IFNULL(_JobPostID,CJA.JobPostID)
+            AND CJA.CompanyUserID= IFNULL(@CompanyID,CJA.CompanyUserID)
+            AND
+              ( 
+                IFNULL(_StartSalary,IFNULL(CD.Salary,0)) <= IFNULL(CD.Salary,0) AND 
+                IFNULL(CD.Salary,0) <=IFNULL(_EndSalary,IFNULL(CD.Salary,0))
+              ) AND
+              FIND_IN_SET(CD.CityID,IFNULL(_CityIDS,CD.CityID)) AND
+              FIND_IN_SET(U.UserID,@Desigantion_related_IDS)
+            );
+    IF(@COUNT > 0) THEN 
+        SET @rownum:=0;
+        SELECT AA.*,@rownum AS rowcount  FROM (
+          SELECT V.*, @rownum := @rownum + 1 AS Rno FROM  ( 
+                SELECT 
+                    DISTINCT CJA.CompanyJobActionID AS CompanyJobActionID,
+                    IFNULL(CJA.JobPostID,0) AS JobPostID,
+                    IF(IFNULL(_JobPostID,'-1') = '-1', (SELECT J.JobTitle FROM ssc_jobpost J WHERE J.JobPostID = CJA.JobPostID),'') AS JobTitle,
+                  IFNULL(DATE_FORMAT(CJA.InterviewScheduled,'%d-%m-%Y %H:%i'),'') AS InterviewScheduled,
+                    IFNULL(CJA.CurrentState,'') AS CurrentState,
+                    IFNULL(CJA.Reason,'') AS Reason,
+                    IFNULL(U.UserID,'') AS UserID,
+                    IFNULL(U.EmailID,'') AS EmailID,
+                    IFNULL(U.RegistrationType,'') AS RegistrationType,
+                    IFNULL(U.FacebookID,'') AS FacebookID,
+                    IFNULL(U.LinkedInID,'') AS LinkedInID,
+                    IFNULL(U.TwitterID,'') AS TwitterID,
+                    IFNULL(U.UserType,'') AS UserType,
+                    IFNULL(U.MobileNo,'') AS MobileNo,
+                    IFNULL(CD.IsWorkPermit,'') AS IsWorkPermit,
+                    IFNULL(CD.AgeGroupID,'') AS AgeGroupID,
+                    IFNULL(CD.FirstName,'') AS FirstName,
+                    IFNULL(CD.LastName,'') AS LastName,
+                    IF(IFNULL(CD.ProfilePic,'')='','',CONCAT(_Path,'assets/uploads/candidate/',CD.ProfilePic)) AS ProfilePic,
+                    IFNULL(CD.ProfilePic,'') AS ProfilePicOrgName,
+                    IF(IFNULL(CD.CVPath,'')='','',CONCAT(_Path,'assets/uploads/cv/',CD.CVPath)) AS CVPath,
+                    IFNULL(CD.CVPath,'') AS CVPathOrgName,
+                    IFNULL(CD.CVPath,'') AS CVName,
+                    IFNULL(CD.Address,'') AS Address,
+                    IFNULL(CD.CityID,'') AS CityID,
+                    IFNULL(CT.CityName,'') AS CityName,
+                    IFNULL(CD.Latitude,'') AS Latitude,
+                    IFNULL(CD.Longitude,'') AS Longitude,
+                    IFNULL(CD.Pincode,'') AS Pincode,
+                    IFNULL(CD.HaveDrivingLicence,0) AS HaveDrivingLicence,
+                IFNULL(CD.IsWillingToRelocate,0) AS IsWillingToRelocate,
+                    '' AS PermenantAddress,
+                    (SELECT Fn_M_GetYearMonthsFromMonths(IFNULL(CD.Experience,0),'Year')) AS ExperienceYear,
+                    (SELECT Fn_M_GetYearMonthsFromMonths(IFNULL(CD.Experience,0),'Month')) AS ExperienceMonth,
+                    IFNULL(CD.Salary,0) AS Salary,
+                    IFNULL(CD.BirthYear,'') AS BirthYear,
+                    IFNULL(CD.Gender,'Male') AS Gender,
+                    IFNULL(CD.OtherGender,'') AS OtherGender,
+                    '' AS MaritualStatus,
+                  IFNULL(CD.JobType,'') AS JobType,
+                  IFNULL(CD.VisaStatus,'') AS VisaStatus,
+              IFNULL(CD.ProfileStatus,'') AS ProfileStatus,
+                  IFNULL(CD.EthnicityID,'0') AS EthnicityID,
+                  (SELECT IFNULL(E.EthnicityName,'') FROM ssc_ethnicity E WHERE CD.EthnicityID = E.EthnicityID) AS EthnicityName,
+                    IFNULL(CD.StatusText,'') AS StatusText,
+                    IFNULL(CD.ProfileSummary,'') AS ProfileSummary,
+                    IFNULL(CD.CVHeadLine,'') AS CVHeadLine,
+                    IFNULL(CD.IsPhysicalChallenged,'') AS IsPhysicalChallenged,
+                    IFNULL(CD.IsExperience,'') AS IsExperience,
+                    IFNULL(CD.IsOTPVerified,0) AS IsOTPVerified,
+                    IFNULL(CD.OTPExpiredate,0) AS OTPExpiredate,
+                    IFNULL(UEMP.OrganizationOther,'') AS CompanyName,
+                    IFNULL(UEMP.DesignationID,'') AS DesignationID,
+                    IFNULL(DES.Designation,'') AS Designation,
+                    IFNULL(CJA.View,0) AS View,
+                    IFNULL(CJA.Applied,0) AS Applied,
+                    IFNULL(CJA.ShortListed,0) AS ShortListed,
+                    IFNULL(CJA.Invited,0) AS Invited,
+                    IF(IFNULL(CJA.Invited,0)=5,1,0) AS IsHired,
+                    IFNULL(CD.ModifiedDate,IFNULL(CD.CreatedDate,'')) AS Modified,
+                    1 as DefaultSearch,
+                    (SELECT Fn_M_GetSkillsNameByUserID(U.UserID)) AS Skills
+                FROM ssc_companyjobaction CJA 
+            INNER JOIN ssc_user U ON (CJA.CandidateUserID = U.UserID)
+            INNER JOIN ssc_candidate CD ON (CD.UserID = U.UserID)
+                    LEFT JOIN ssc_cities CT ON CT.CityID = CD.CityID
+                    LEFT JOIN ssc_useremployement UEMP ON (UEMP.UserID = CD.UserID AND UEMP.Status = 1 AND UEMP.IsPresent = 1)
+                    LEFT JOIN ssc_designation DES ON (DES.DesignationID = UEMP.DesignationID)
+            WHERE CJA.status!=0
+            AND U.UserType='Candidate'
+            AND CJA.CurrentState='5'
+            AND CJA.Invited = 5
+            AND CJA.JobPostID= IFNULL(_JobPostID,CJA.JobPostID)
+            AND CJA.CompanyUserID= IFNULL(@CompanyID,CJA.CompanyUserID)
+            AND
+              ( 
+                IFNULL(_StartSalary,IFNULL(CD.Salary,0)) <= IFNULL(CD.Salary,0) AND 
+                IFNULL(CD.Salary,0) <=IFNULL(_EndSalary,IFNULL(CD.Salary,0))
+              ) AND
+              FIND_IN_SET(CD.CityID,IFNULL(_CityIDS,CD.CityID)) AND
+              FIND_IN_SET(U.UserID,@Desigantion_related_IDS)
+              AND (IFNULL(CD.ProfileSummary,'') LIKE CONCAT("%",IFNULL(_JobSearch,IFNULL(CD.ProfileSummary,'')),"%") OR IFNULL(CD.CVHeadLine,'') LIKE CONCAT("%",IFNULL(_JobSearch,IFNULL(CD.CVHeadLine,'')),"%"))
+            ) V 
+              ORDER BY  (CASE             
+                    WHEN _Sort='Name' AND _SortByOrder = 'DESC' THEN V.FirstName 
+                    WHEN _Sort='Salary' AND _SortByOrder = 'DESC' THEN (V.Salary+0) 
+                    WHEN _Sort='Modified' AND _SortByOrder = 'DESC' THEN V.Modified 
+                    ELSE V.DefaultSearch
+                END) DESC, 
+                (CASE 
+                    WHEN _Sort='Name' AND _SortByOrder = 'ASC' THEN V.FirstName 
+                    WHEN _Sort='Salary' AND _SortByOrder = 'ASC' THEN (V.Salary+0) 
+                    WHEN _Sort='Modified' AND _SortByOrder = 'ASC' THEN V.Modified 
+                    ELSE V.DefaultSearch
+                END) ASC    
+          ) AA
+        WHERE Rno BETWEEN (((_CurrentPage*_PageSize) - _PageSize)+1) AND (_CurrentPage*_PageSize);
+    ELSE 
+        SELECT Fn_M_getErrorMessage('candidate_listing_not_found') AS Message;
+    END IF; 
+  ELSEIF(_Type="Decline") THEN
+    SET @COUNT = (SELECT COUNT(DISTINCT U.UserID)
+              FROM ssc_companyjobaction CJA 
+            INNER JOIN ssc_user U ON (CJA.CandidateUserID = U.UserID)
+            INNER JOIN ssc_candidate CD ON (CD.UserID = U.UserID)
+            WHERE CJA.status!=0
+            AND U.UserType='Candidate'
+            AND CJA.CurrentState='6'
+            AND CJA.JobPostID= IFNULL(_JobPostID,CJA.JobPostID)
+            AND CJA.CompanyUserID= IFNULL(@CompanyID,CJA.CompanyUserID)
+            AND
+              ( 
+                IFNULL(_StartSalary,IFNULL(CD.Salary,0)) <= IFNULL(CD.Salary,0) AND 
+                IFNULL(CD.Salary,0) <=IFNULL(_EndSalary,IFNULL(CD.Salary,0))
+              ) AND
+              FIND_IN_SET(CD.CityID,IFNULL(_CityIDS,CD.CityID)) AND
+              FIND_IN_SET(U.UserID,@Desigantion_related_IDS)
+            );
+    IF(@COUNT > 0) THEN 
+        SET @rownum:=0;
+        SELECT AA.*,@rownum AS rowcount  FROM (
+          SELECT V.*, @rownum := @rownum + 1 AS Rno FROM  ( 
+                SELECT 
+                    DISTINCT CJA.CompanyJobActionID AS CompanyJobActionID,
+                  IFNULL(DATE_FORMAT(CJA.InterviewScheduled,'%d-%m-%Y %H:%i'),'') AS InterviewScheduled,
+                    IFNULL(CJA.CurrentState,'') AS CurrentState,
+                    IFNULL(CJA.Reason,'') AS Reason,
+                    IFNULL(U.UserID,'') AS UserID,
+                    IFNULL(U.EmailID,'') AS EmailID,
+                    IFNULL(U.RegistrationType,'') AS RegistrationType,
+                    IFNULL(U.FacebookID,'') AS FacebookID,
+                    IFNULL(U.LinkedInID,'') AS LinkedInID,
+                    IFNULL(U.TwitterID,'') AS TwitterID,
+                    IFNULL(U.UserType,'') AS UserType,
+                    IFNULL(U.MobileNo,'') AS MobileNo,
+                    IFNULL(CD.IsWorkPermit,'') AS IsWorkPermit,
+                    IFNULL(CD.AgeGroupID,'') AS AgeGroupID,
+                    IFNULL(CD.FirstName,'') AS FirstName,
+                    IFNULL(CD.LastName,'') AS LastName,
+                    IF(IFNULL(CD.ProfilePic,'')='','',CONCAT(_Path,'assets/uploads/candidate/',CD.ProfilePic)) AS ProfilePic,
+                    IFNULL(CD.ProfilePic,'') AS ProfilePicOrgName,
+                    IF(IFNULL(CD.CVPath,'')='','',CONCAT(_Path,'assets/uploads/cv/',CD.CVPath)) AS CVPath,
+                    IFNULL(CD.CVPath,'') AS CVPathOrgName,
+                    IFNULL(CD.CVPath,'') AS CVName,
+                    IFNULL(CD.Address,'') AS Address,
+                    IFNULL(CD.CityID,'') AS CityID,
+                    IFNULL(CT.CityName,'') AS CityName,
+                    IFNULL(CD.Latitude,'') AS Latitude,
+                    IFNULL(CD.Longitude,'') AS Longitude,
+                    IFNULL(CD.Pincode,'') AS Pincode,
+                    '' AS PermenantAddress,
+                    (SELECT Fn_M_GetYearMonthsFromMonths(IFNULL(CD.Experience,0),'Year')) AS ExperienceYear,
+                    (SELECT Fn_M_GetYearMonthsFromMonths(IFNULL(CD.Experience,0),'Month')) AS ExperienceMonth,
+                    IFNULL(CD.Salary,0) AS Salary,
+                    IFNULL(CD.BirthYear,'') AS BirthYear,
+                    IFNULL(CD.Gender,'Male') AS Gender,
+                    IFNULL(CD.OtherGender,'') AS OtherGender,
+                    IFNULL(CD.HaveDrivingLicence,0) AS HaveDrivingLicence,
+                IFNULL(CD.IsWillingToRelocate,0) AS IsWillingToRelocate,
+                    '' AS MaritualStatus,
+                  IFNULL(CD.JobType,'') AS JobType,
+                  IFNULL(CD.VisaStatus,'') AS VisaStatus,
+              IFNULL(CD.ProfileStatus,'') AS ProfileStatus,
+                  IFNULL(CD.EthnicityID,'0') AS EthnicityID,
+                  (SELECT IFNULL(E.EthnicityName,'') FROM ssc_ethnicity E WHERE CD.EthnicityID = E.EthnicityID) AS EthnicityName,
+                    IFNULL(CD.StatusText,'') AS StatusText,
+                    IFNULL(CD.ProfileSummary,'') AS ProfileSummary,
+                    IFNULL(CD.CVHeadLine,'') AS CVHeadLine,
+                    IFNULL(CD.IsPhysicalChallenged,'') AS IsPhysicalChallenged,
+                    IFNULL(CD.IsExperience,'') AS IsExperience,
+                    IFNULL(CD.IsOTPVerified,0) AS IsOTPVerified,
+                    IFNULL(CD.OTPExpiredate,0) AS OTPExpiredate,
+                    IFNULL(UEMP.OrganizationOther,'') AS CompanyName,
+                    IFNULL(UEMP.DesignationID,'') AS DesignationID,
+                    IFNULL(DES.Designation,'') AS Designation,
+                    IFNULL(CJA.View,0) AS View,
+                    IFNULL(CJA.Applied,0) AS Applied,
+                    IFNULL(CJA.ShortListed,0) AS ShortListed,
+                    IFNULL(CJA.Invited,0) AS Invited,
+                    IF(IFNULL(CJA.Invited,0)=5,1,0) AS IsHired,
+                    IFNULL(CD.ModifiedDate,IFNULL(CD.CreatedDate,'')) AS Modified,
+                    1 as DefaultSearch,
+                    (SELECT Fn_M_GetSkillsNameByUserID(U.UserID)) AS Skills
+                FROM ssc_companyjobaction CJA 
+            INNER JOIN ssc_user U ON (CJA.CandidateUserID = U.UserID)
+            INNER JOIN ssc_candidate CD ON (CD.UserID = U.UserID)
+                    LEFT JOIN ssc_cities CT ON CT.CityID = CD.CityID
+                    LEFT JOIN ssc_useremployement UEMP ON (UEMP.UserID = CD.UserID AND UEMP.Status = 1 AND UEMP.IsPresent = 1)
+                    LEFT JOIN ssc_designation DES ON (DES.DesignationID = UEMP.DesignationID)
+            WHERE CJA.status!=0
+            AND U.UserType='Candidate'
+            AND CJA.CurrentState='6'
+            AND CJA.JobPostID= IFNULL(_JobPostID,CJA.JobPostID)
+            AND CJA.CompanyUserID= IFNULL(@CompanyID,CJA.CompanyUserID)
+            AND
+              ( 
+                IFNULL(_StartSalary,IFNULL(CD.Salary,0)) <= IFNULL(CD.Salary,0) AND 
+                IFNULL(CD.Salary,0) <=IFNULL(_EndSalary,IFNULL(CD.Salary,0))
+              ) AND
+              FIND_IN_SET(CD.CityID,IFNULL(_CityIDS,CD.CityID)) AND
+              FIND_IN_SET(U.UserID,@Desigantion_related_IDS)
+              AND (IFNULL(CD.ProfileSummary,'') LIKE CONCAT("%",IFNULL(_JobSearch,IFNULL(CD.ProfileSummary,'')),"%") OR IFNULL(CD.CVHeadLine,'') LIKE CONCAT("%",IFNULL(_JobSearch,IFNULL(CD.CVHeadLine,'')),"%"))
+            ) V 
+              ORDER BY  (CASE             
+                    WHEN _Sort='Name' AND _SortByOrder = 'DESC' THEN V.FirstName 
+                    WHEN _Sort='Salary' AND _SortByOrder = 'DESC' THEN (V.Salary+0) 
+                    WHEN _Sort='Modified' AND _SortByOrder = 'DESC' THEN V.Modified 
+                    ELSE V.DefaultSearch
+                END) DESC, 
+                (CASE 
+                    WHEN _Sort='Name' AND _SortByOrder = 'ASC' THEN V.FirstName 
+                    WHEN _Sort='Salary' AND _SortByOrder = 'ASC' THEN (V.Salary+0) 
+                    WHEN _Sort='Modified' AND _SortByOrder = 'ASC' THEN V.Modified 
+                    ELSE V.DefaultSearch
+                END) ASC   
+          ) AA
+        WHERE Rno BETWEEN (((_CurrentPage*_PageSize) - _PageSize)+1) AND (_CurrentPage*_PageSize);
+    ELSE 
+        SELECT Fn_M_getErrorMessage('candidate_listing_not_found') AS Message;
+    END IF; 
+  ELSEIF(_Type="HiredDecline") THEN
+    SET @COUNT = (SELECT COUNT(DISTINCT U.UserID)
+              FROM ssc_companyjobaction CJA 
+            INNER JOIN ssc_user U ON (CJA.CandidateUserID = U.UserID)
+            INNER JOIN ssc_candidate CD ON (CD.UserID = U.UserID)
+            WHERE 
+              CJA.status!=0 AND 
+              U.UserType='Candidate' AND 
+              (
+                CJA.CurrentState='6' OR 
+                CJA.Applied = 2 OR 
+                CJA.Invited = 3 OR 
+                CJA.Invited = 4
+              ) AND
+              CJA.CompanyUserID= @CompanyID AND
+              ( 
+                IFNULL(_StartSalary,IFNULL(CD.Salary,0)) <= IFNULL(CD.Salary,0) AND 
+                IFNULL(CD.Salary,0) <=IFNULL(_EndSalary,IFNULL(CD.Salary,0))
+              ) AND
+              FIND_IN_SET(CD.CityID,IFNULL(_CityIDS,CD.CityID)) AND
+              FIND_IN_SET(U.UserID,@Desigantion_related_IDS)
+              AND (IFNULL(CD.ProfileSummary,'') LIKE CONCAT("%",IFNULL(_JobSearch,IFNULL(CD.ProfileSummary,'')),"%") OR IFNULL(CD.CVHeadLine,'') LIKE CONCAT("%",IFNULL(_JobSearch,IFNULL(CD.CVHeadLine,'')),"%"))
+            );
+    IF(@COUNT > 0) THEN 
+        SET @rownum:=0;
+        SELECT AA.*,@rownum AS rowcount  FROM (
+          SELECT V.*, @rownum := @rownum + 1 AS Rno FROM  ( 
+                SELECT 
+                    DISTINCT CJA.CompanyJobActionID AS CompanyJobActionID,
+                    IFNULL(DATE_FORMAT(CJA.InterviewScheduled,'%d-%m-%Y %H:%i'),'') AS InterviewScheduled,
+                    IFNULL(CJA.CurrentState,'') AS CurrentState,
+                    IFNULL(CJA.Reason,'') AS Reason,
+                    IFNULL(U.UserID,'') AS UserID,
+                    IFNULL(U.EmailID,'') AS EmailID,
+                    IFNULL(U.RegistrationType,'') AS RegistrationType,
+                    IFNULL(U.FacebookID,'') AS FacebookID,
+                    IFNULL(U.LinkedInID,'') AS LinkedInID,
+                    IFNULL(U.TwitterID,'') AS TwitterID,
+                    IFNULL(U.UserType,'') AS UserType,
+                    IFNULL(U.MobileNo,'') AS MobileNo,
+                    IFNULL(CD.IsWorkPermit,'') AS IsWorkPermit,
+                    IFNULL(CD.AgeGroupID,'') AS AgeGroupID,
+                    IFNULL(CD.FirstName,'') AS FirstName,
+                    IFNULL(CD.LastName,'') AS LastName,
+                    IF(IFNULL(CD.ProfilePic,'')='','',CONCAT(_Path,'assets/uploads/candidate/',CD.ProfilePic)) AS ProfilePic,
+                    IFNULL(CD.ProfilePic,'') AS ProfilePicOrgName,
+                    IF(IFNULL(CD.CVPath,'')='','',CONCAT(_Path,'assets/uploads/cv/',CD.CVPath)) AS CVPath,
+                    IFNULL(CD.CVPath,'') AS CVPathOrgName,
+                    IFNULL(CD.CVPath,'') AS CVName,
+                    IFNULL(CD.Address,'') AS Address,
+                    IFNULL(CD.CityID,'') AS CityID,
+                    IFNULL(CT.CityName,'') AS CityName,
+                    IFNULL(CD.Latitude,'') AS Latitude,
+                    IFNULL(CD.Longitude,'') AS Longitude,
+                    IFNULL(CD.Pincode,'') AS Pincode,
+                    IFNULL(CD.HaveDrivingLicence,0) AS HaveDrivingLicence,
+                IFNULL(CD.IsWillingToRelocate,0) AS IsWillingToRelocate,
+                    '' AS PermenantAddress,
+                    (SELECT Fn_M_GetYearMonthsFromMonths(IFNULL(CD.Experience,0),'Year')) AS ExperienceYear,
+                    (SELECT Fn_M_GetYearMonthsFromMonths(IFNULL(CD.Experience,0),'Month')) AS ExperienceMonth,
+                    IFNULL(CD.Salary,0) AS Salary,
+                    IFNULL(CD.BirthYear,'') AS BirthYear,
+                    IFNULL(CD.Gender,'Male') AS Gender,
+                    IFNULL(CD.OtherGender,'') AS OtherGender,
+                    '' AS MaritualStatus,
+                    IFNULL(CD.JobType,'') AS JobType,
+                    IFNULL(CD.VisaStatus,'') AS VisaStatus,
+                    IFNULL(CD.ProfileStatus,'') AS ProfileStatus,
+                    IFNULL(CD.EthnicityID,'0') AS EthnicityID,
+                    (SELECT IFNULL(E.EthnicityName,'') FROM ssc_ethnicity E WHERE CD.EthnicityID = E.EthnicityID) AS EthnicityName,
+                    IFNULL(CD.StatusText,'') AS StatusText,
+                    IFNULL(CD.ProfileSummary,'') AS ProfileSummary,
+                    IFNULL(CD.CVHeadLine,'') AS CVHeadLine,
+                    IFNULL(CD.IsPhysicalChallenged,'') AS IsPhysicalChallenged,
+                    IFNULL(CD.IsExperience,'') AS IsExperience,
+                    IFNULL(CD.IsOTPVerified,0) AS IsOTPVerified,
+                    IFNULL(CD.OTPExpiredate,0) AS OTPExpiredate,
+                    IFNULL(UEMP.OrganizationOther,'') AS CompanyName,
+                    IFNULL(UEMP.DesignationID,'') AS DesignationID,
+                    IFNULL(DES.Designation,'') AS Designation,
+                    IFNULL(CJA.View,0) AS View,
+                    IFNULL(CJA.Applied,0) AS Applied,
+                    IFNULL(CJA.ShortListed,0) AS ShortListed,
+                    IFNULL(CJA.Invited,0) AS Invited,
+                    IF(IFNULL(CJA.Invited,0)=5,1,0) AS IsHired,
+                    IFNULL(CD.ModifiedDate,IFNULL(CD.CreatedDate,'')) AS Modified,
+                    1 as DefaultSearch,
+                    (SELECT Fn_M_GetSkillsNameByUserID(U.UserID)) AS Skills
+                FROM ssc_companyjobaction CJA 
+                INNER JOIN ssc_user U ON (CJA.CandidateUserID = U.UserID)
+                INNER JOIN ssc_candidate CD ON (CD.UserID = U.UserID)
+                    LEFT JOIN ssc_cities CT ON CT.CityID = CD.CityID
+                    LEFT JOIN ssc_useremployement UEMP ON (UEMP.UserID = CD.UserID AND UEMP.Status = 1 AND UEMP.IsPresent = 1)
+                    LEFT JOIN ssc_designation DES ON (DES.DesignationID = UEMP.DesignationID)
+             WHERE 
+              CJA.status!=0 AND 
+              U.UserType='Candidate' AND 
+              (
+                CJA.CurrentState='6' OR 
+                CJA.Applied = 2 OR 
+                CJA.Invited = 3 OR 
+                CJA.Invited = 4
+              ) AND
+              CJA.CompanyUserID= @CompanyID AND
+              ( 
+                IFNULL(_StartSalary,IFNULL(CD.Salary,0)) <= IFNULL(CD.Salary,0) AND 
+                IFNULL(CD.Salary,0) <=IFNULL(_EndSalary,IFNULL(CD.Salary,0))
+              ) AND
+              FIND_IN_SET(CD.CityID,IFNULL(_CityIDS,CD.CityID)) AND
+              FIND_IN_SET(U.UserID,@Desigantion_related_IDS)
+              AND (IFNULL(CD.ProfileSummary,'') LIKE CONCAT("%",IFNULL(_JobSearch,IFNULL(CD.ProfileSummary,'')),"%") OR IFNULL(CD.CVHeadLine,'') LIKE CONCAT("%",IFNULL(_JobSearch,IFNULL(CD.CVHeadLine,'')),"%"))
+            ) V 
+              ORDER BY  (CASE             
+                    WHEN _Sort='Name' AND _SortByOrder = 'DESC' THEN V.FirstName 
+                    WHEN _Sort='Salary' AND _SortByOrder = 'DESC' THEN (V.Salary+0) 
+                    WHEN _Sort='Modified' AND _SortByOrder = 'DESC' THEN V.Modified 
+                    ELSE V.DefaultSearch
+                END) DESC, 
+                (CASE 
+                    WHEN _Sort='Name' AND _SortByOrder = 'ASC' THEN V.FirstName 
+                    WHEN _Sort='Salary' AND _SortByOrder = 'ASC' THEN (V.Salary+0) 
+                    WHEN _Sort='Modified' AND _SortByOrder = 'ASC' THEN V.Modified 
+                    ELSE V.DefaultSearch
+                END) ASC   
+          ) AA
+        WHERE Rno BETWEEN (((_CurrentPage*_PageSize) - _PageSize)+1) AND (_CurrentPage*_PageSize);
+    ELSE 
+        SELECT Fn_M_getErrorMessage('candidate_listing_not_found') AS Message;
+    END IF; 
+  ELSE
+    SET @COUNT = (SELECT COUNT(DISTINCT U.UserID) 
+      FROM ssc_companyjobaction CJA
+        INNER JOIN ssc_user U ON (U.UserID = CJA.CandidateUserID AND U.Status = 1)
+        INNER JOIN ssc_candidate CD ON (CD.UserID = U.UserID AND CD.Status = 1)
+        WHERE
+            CJA.Status = 1 AND 
+            CJA.Applied > 0 AND
+            CJA.JobPostID = _JobPostID AND
+            U.UserType='Candidate' AND
+            ( 
+              IFNULL(_StartSalary,IFNULL(CD.Salary,0)) <= IFNULL(CD.Salary,0) AND 
+              IFNULL(CD.Salary,0) <=IFNULL(_EndSalary,IFNULL(CD.Salary,0))
+            )AND 
+            FIND_IN_SET(CD.CityID,IFNULL(_CityIDS,CD.CityID)) AND
+            FIND_IN_SET(U.UserID,@Desigantion_related_IDS)
+            );
+    IF(@COUNT > 0) THEN 
+        SET @rownum:=0;
+        SELECT AA.*,@rownum AS rowcount FROM (
+          SELECT V.*, @rownum := @rownum + 1 AS Rno FROM  ( 
+                SELECT 
+                    DISTINCT CJA.CompanyJobActionID AS CompanyJobActionID,
+                  IFNULL(DATE_FORMAT(CJA.InterviewScheduled,'%d-%m-%Y %H:%i'),'') AS InterviewScheduled,
+                    IFNULL(CJA.CurrentState,'') AS CurrentState,
+                    IFNULL(CJA.Reason,'') AS Reason,
+                    IFNULL(U.UserID,'') AS UserID,
+                    IFNULL(U.EmailID,'') AS EmailID,
+                    IFNULL(U.RegistrationType,'') AS RegistrationType,
+                    IFNULL(U.FacebookID,'') AS FacebookID,
+                    IFNULL(U.LinkedInID,'') AS LinkedInID,
+                    IFNULL(U.TwitterID,'') AS TwitterID,
+                    IFNULL(U.UserType,'') AS UserType,
+                    IFNULL(U.MobileNo,'') AS MobileNo,
+                    IFNULL(CD.IsWorkPermit,'') AS IsWorkPermit,
+                    IFNULL(CD.AgeGroupID,'') AS AgeGroupID,
+                    IFNULL(CD.FirstName,'') AS FirstName,
+                    IFNULL(CD.LastName,'') AS LastName,
+                    IF(IFNULL(CD.ProfilePic,'')='','',CONCAT(_Path,'assets/uploads/candidate/',CD.ProfilePic)) AS ProfilePic,
+                    IFNULL(CD.ProfilePic,'') AS ProfilePicOrgName,
+                    IF(IFNULL(CD.CVPath,'')='','',CONCAT(_Path,'assets/uploads/cv/',CD.CVPath)) AS CVPath,
+                    IFNULL(CD.CVPath,'') AS CVPathOrgName,
+                    IFNULL(CD.CVPath,'') AS CVName,
+                    IFNULL(CD.Address,'') AS Address,
+                    IFNULL(CD.CityID,'') AS CityID,
+                    IFNULL(CT.CityName,'') AS CityName,
+                    IFNULL(CD.Latitude,'') AS Latitude,
+                    IFNULL(CD.Longitude,'') AS Longitude,
+                    IFNULL(CD.Pincode,'') AS Pincode,
+                    IFNULL(CD.HaveDrivingLicence,0) AS HaveDrivingLicence,
+                IFNULL(CD.IsWillingToRelocate,0) AS IsWillingToRelocate,
+                    '' AS PermenantAddress,
+                    (SELECT Fn_M_GetYearMonthsFromMonths(IFNULL(CD.Experience,0),'Year')) AS ExperienceYear,
+                    (SELECT Fn_M_GetYearMonthsFromMonths(IFNULL(CD.Experience,0),'Month')) AS ExperienceMonth,
+                    IFNULL(CD.Salary,0) AS Salary,
+                    IFNULL(CD.BirthYear,'') AS BirthYear,
+                    IFNULL(CD.Gender,'Male') AS Gender,
+                    IFNULL(CD.OtherGender,'') AS OtherGender,
+                    '' AS MaritualStatus,
+                  IFNULL(CD.JobType,'') AS JobType,
+                  IFNULL(CD.VisaStatus,'') AS VisaStatus,
+              IFNULL(CD.ProfileStatus,'') AS ProfileStatus,
+                  IFNULL(CD.EthnicityID,'0') AS EthnicityID,
+                  (SELECT IFNULL(E.EthnicityName,'') FROM ssc_ethnicity E WHERE CD.EthnicityID = E.EthnicityID) AS EthnicityName,
+                    IFNULL(CD.StatusText,'') AS StatusText,
+                    IFNULL(CD.ProfileSummary,'') AS ProfileSummary,
+                    IFNULL(CD.CVHeadLine,'') AS CVHeadLine,
+                    IFNULL(CD.IsPhysicalChallenged,'') AS IsPhysicalChallenged,
+                    IFNULL(CD.IsExperience,'0') AS IsExperience,
+                    IFNULL(CD.IsOTPVerified,0) AS IsOTPVerified,
+                    IFNULL(CD.OTPExpiredate,0) AS OTPExpiredate,
+                    IFNULL(UEMP.OrganizationOther,'') AS CompanyName,
+                    IFNULL(UEMP.DesignationID,'') AS DesignationID,
+                    IFNULL(DES.Designation,'') AS Designation,
+                    IFNULL(CJA.View,0) AS View,
+                    IFNULL(CJA.Applied,0) AS Applied,
+                    IFNULL(CJA.ShortListed,0) AS ShortListed,
+                    IFNULL(CJA.Invited,0) AS Invited,
+                    IF(IFNULL(CJA.Invited,0)=5,1,0) AS IsHired,
+                    IFNULL(CD.ModifiedDate,IFNULL(CD.CreatedDate,'')) AS Modified,
+                    1 as DefaultSearch,
+                    (SELECT Fn_M_GetSkillsNameByUserID(U.UserID)) AS Skills
+                FROM ssc_companyjobaction CJA
+              INNER JOIN ssc_user U ON (U.UserID = CJA.CandidateUserID AND U.Status = 1)
+              INNER JOIN ssc_candidate CD ON (CD.UserID = U.UserID AND CD.Status = 1)
+                    LEFT JOIN ssc_cities CT ON CT.CityID = CD.CityID
+                    LEFT JOIN ssc_useremployement UEMP ON (UEMP.UserID = CD.UserID AND UEMP.Status = 1 AND UEMP.IsPresent = 1)
+                    LEFT JOIN ssc_designation DES ON (DES.DesignationID = UEMP.DesignationID)
+                WHERE
+                    CJA.Status = 1 AND 
+                CJA.Applied > 0 AND
+                CJA.JobPostID = _JobPostID AND
+                U.UserType='Candidate' AND
+                ( 
+                  IFNULL(_StartSalary,IFNULL(CD.Salary,0)) <= IFNULL(CD.Salary,0) AND 
+                  IFNULL(CD.Salary,0) <=IFNULL(_EndSalary,IFNULL(CD.Salary,0))
+                ) AND 
+                FIND_IN_SET(CD.CityID,IFNULL(_CityIDS,CD.CityID)) AND
+                FIND_IN_SET(U.UserID,@Desigantion_related_IDS)
+                AND (IFNULL(CD.ProfileSummary,'') LIKE CONCAT("%",IFNULL(_JobSearch,IFNULL(CD.ProfileSummary,'')),"%") OR IFNULL(CD.CVHeadLine,'') LIKE CONCAT("%",IFNULL(_JobSearch,IFNULL(CD.CVHeadLine,'')),"%"))
+              ) V 
+              ORDER BY  (CASE             
+                    WHEN _Sort='Name' AND _SortByOrder = 'DESC' THEN V.FirstName 
+                    WHEN _Sort='Salary' AND _SortByOrder = 'DESC' THEN (V.Salary+0) 
+                    WHEN _Sort='Modified' AND _SortByOrder = 'DESC' THEN V.Modified 
+                    ELSE V.DefaultSearch
+                END) DESC, 
+                (CASE 
+                    WHEN _Sort='Name' AND _SortByOrder = 'ASC' THEN V.FirstName 
+                    WHEN _Sort='Salary' AND _SortByOrder = 'ASC' THEN (V.Salary+0) 
+                    WHEN _Sort='Modified' AND _SortByOrder = 'ASC' THEN V.Modified 
+                    ELSE V.DefaultSearch
+                END) ASC    
+          ) AA
+        WHERE Rno BETWEEN (((_CurrentPage*_PageSize) - _PageSize)+1) AND (_CurrentPage*_PageSize);
+    ELSE 
+        SELECT Fn_M_getErrorMessage('candidate_listing_not_found') AS Message;
+    END IF; 
+  END IF;
+END IF;
+END$$
+DELIMITER ;

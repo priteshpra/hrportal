@@ -389,6 +389,9 @@
                                         <option value="100">100</option>
                                       </select>
                                     </div>
+                                    <input type="hidden" name="jobSearchText" id="jobSearchText" value="<?php echo @$details->JobTitle ?>" />
+                                    <input type="hidden" name="jobID" id="jobID" value="<?php echo @$details->JobPostID ?>" />
+                                    <input type="hidden" name="CompanyEmployeeUserID" id="CompanyEmployeeUserID" value="<?php echo @$details->CompanyEmployeeUserID ?>" />
                                     <div class="col m6 s12 center m-t-20">
                                       <span><label><?php echo label('msg_lbl_data_display'); ?> :</label></span> &nbsp;&nbsp;
                                       <input name="data_display" type="radio" id="Alls" value="All" onclick="return changeFilter(this.value);" checked="checked">
@@ -423,7 +426,7 @@
                                         ?>
                                       </div>
                                     </div>
-                                    <button class="btn waves-effect waves-light right" type="button" id="button_submits" name="button_submit"><?php echo label('msg_lbl_submit'); ?>
+                                    <button class="btn waves-effect waves-light right all_active_inactives" type="button" id="button_submits" name="button_submit"><?php echo label('msg_lbl_submit'); ?>
                                     </button>
                                     &nbsp;&nbsp;&nbsp;
                                     <a href="javascript:;" class="clear-all right" onclick="return clearAllFilter();"><?php echo label('msg_lbl_clear_all'); ?>

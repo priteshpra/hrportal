@@ -67,7 +67,9 @@ class Candidate extends Admin_Controller
         $result = array();
         $result['per_page_record'] = $per_page_record;
         $result['page_number'] = $page_number;
-        $result['candidate'] = $this->candidate_model->listData($per_page_record, $page_number);
+        $result['JobID'] = $this->input->post('jobID');
+        $result['CompanyEmployeeUserID'] = $this->input->post('CompanyEmployeeUserID');
+        $result['candidate'] = $this->candidate_model->listData_sort($per_page_record, $page_number);
         if (empty($result['candidate']))
             $result['total_records'] = 0;
         else

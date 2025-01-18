@@ -55,6 +55,9 @@
         DesignationID = $("#DesignationID").val();
         Location = $("#Location").val();
         Skills = $("#Skillss").val();
+        jobSearchText = $("#jobSearchText").val();
+        jobID = $("#jobID").val();
+        CompanyEmployeeUserID = $("#CompanyEmployeeUserID").val();
         $.ajax({
             type: "post",
             url: base_url + "admin/masters/candidate/ajax_listingshort/" + current_page_size + "/" + total_page,
@@ -63,6 +66,9 @@
                 Salary: Salary,
                 Location: Location,
                 DesignationID: DesignationID,
+                jobSearchText: jobSearchText,
+                jobID: jobID,
+                CompanyEmployeeUserID: CompanyEmployeeUserID,
             },
             success: function(data) {
                 var obj = JSON.parse(data);
@@ -107,13 +113,14 @@
         var page = $(this).attr('data-page-number');
         common_ajax(current_page_size, page, JobStatus);
     })
-    $('#button_submits').on('click', function() {
-        Skills = $("#Skills").val();
-        Salary = $("#Salary").val();
-        Location = $("#Location").val();
+    $('.all_active_inactives').on('click', function() {
+        salary = $('#' + mydiv + ' .search_action #Salary').val();
+        JobStatus = $(this).attr('data-type');
+        Skills = $("#Skillss").val();
         DesignationID = $("#DesignationID").val();
         var temp = $('#select-dropdown').val();
-        common_ajax(temp, total_page);
+        current_page_size = $('#' + mydiv + ' #select-dropdown').val();
+        common_ajax(current_page_size, total_page);
 
     })
     $(document).on("click", ".changeFilter", function() {
