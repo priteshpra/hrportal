@@ -54,10 +54,10 @@ foreach ($candidate as $candidate) { ?>
         </td>
         <td class="action center action-box-th">
             <a href="javascript:void(0);" title="Apply" onclick="actionButton(2,<?php echo $candidate->UserID; ?>, <?php echo $JobID ?>,<?php echo $CompanyEmployeeUserID ?>)" data-target="modal1" class="info modal-trigger btn-floating waves-effect waves-light black" data-id="<?php echo $candidate->UserID; ?>">
-                <i title="Apply" class="<?php echo VIEW_ICON_CLASS; ?>"></i>
+                <i title="Apply" class="<?php echo APPLIED_ICON_CLASS; ?>"></i>
             </a>
             <a href="javascript:void(0);" onclick="actionButton(3,<?php echo $candidate->UserID; ?>, <?php echo $JobID ?>,<?php echo $CompanyEmployeeUserID ?>)" title="Shortlist" data-target="modal1" class="info modal-trigger btn-floating waves-effect waves-light black" data-id="<?php echo $candidate->UserID; ?>">
-                <i title="Shortlist" class="<?php echo VIEW_ICON_CLASS; ?>"></i>
+                <i title="Shortlist" class="<?php echo SHORTLIST_ICON_CLASS; ?>"></i>
             </a>
         </td>
     </tr>

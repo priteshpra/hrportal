@@ -178,21 +178,4 @@
         common_ajax(current_page_size, total_page);
 
     });
-
-    function actionButton(status, UserID, JobId, CompanyEmployeeUserID) {
-        $("#CityDiv").val();
-        $.ajax({
-            type: "POST",
-            url: base_url + "admin/masters/jobpost/upsertCompanyJobAction/" + status + '/' + UserID + '/' + JobId + '/' + CompanyEmployeeUserID,
-            data: {
-                UserID: UserID
-            },
-            success: function(result) {
-                location.reload();
-            },
-            error: function(result) {
-                console.log("error" + result);
-            }
-        });
-    }
 </script>

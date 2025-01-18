@@ -432,12 +432,23 @@ class Jobpost extends Admin_Controller
             $this->db->update('ssc_companyjobaction', ['CurrentState' => $CurrentState]);
         } else {
             // Insert record
-            $this->db->insert('ssc_companyjobaction', [
-                'CandidateUserID' => $CandidateUserID,
-                'JobPostID' => $JobPostID,
-                'CurrentState' => $CurrentState,
-                'CompanyEmployeeUserID' => $CompanyEmployeeUserID
-            ]);
+            if ($CurrentState == 3) {
+                $this->db->insert('ssc_companyjobaction', [
+                    'CandidateUserID' => $CandidateUserID,
+                    'JobPostID' => $JobPostID,
+                    'ShortListed' => 1,
+                    'CurrentState' => $CurrentState,
+                    'CompanyEmployeeUserID' => $CompanyEmployeeUserID
+                ]);
+            } else {
+                $this->db->insert('ssc_companyjobaction', [
+                    'CandidateUserID' => $CandidateUserID,
+                    'JobPostID' => $JobPostID,
+                    'Applied' => 1,
+                    'CurrentState' => $CurrentState,
+                    'CompanyEmployeeUserID' => $CompanyEmployeeUserID
+                ]);
+            }
         }
         return $this->db->affected_rows() > 0;
     }

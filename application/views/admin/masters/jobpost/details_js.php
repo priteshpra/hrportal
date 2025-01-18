@@ -52,33 +52,53 @@
                 alertify.error('<?php echo label('Something_went_wrong_contact_to_admin'); ?>');
             }
         })
-        DesignationID = $("#DesignationID").val();
-        Location = $("#Location").val();
-        Skills = $("#Skillss").val();
-        jobSearchText = $("#jobSearchText").val();
-        jobID = $("#jobID").val();
-        CompanyEmployeeUserID = $("#CompanyEmployeeUserID").val();
+
+    }
+
+    function myFunction(UserID) {
+        var DesignationIDs = DesignationID; //$("#DesignationID").val();
+        var Location = ''; //$("#Location").val();
+        var Skillss = ''; //$("#Skillss").val();
+        var jobSearchText = $("#jobSearchText").val();
+        var jobID = $("#jobID").val();
+        // CompanyEmployeeUserID = $("#CompanyEmployeeUserID").val();
         $.ajax({
             type: "post",
             url: base_url + "admin/masters/candidate/ajax_listingshort/" + current_page_size + "/" + total_page,
             data: {
-                Skills: Skills,
-                Salary: Salary,
+                Skills: Skillss,
+                Salary: salary,
                 Location: Location,
-                DesignationID: DesignationID,
+                DesignationID: DesignationIDs,
                 jobSearchText: jobSearchText,
                 jobID: jobID,
-                CompanyEmployeeUserID: CompanyEmployeeUserID,
+                CompanyEmployeeUserID: UserID
             },
             success: function(data) {
-                var obj = JSON.parse(data);
-                $('#table_bodyshort').html(obj.a);
-                $('#table_paging_divshort').html(obj.b);
+                var objs = JSON.parse(data);
+                $('#table_bodyshort').html(objs.a);
+                $('#table_paging_divshort').html(objs.b);
             },
             error: function(data) {
                 alertify.error('<?php echo label('Something_went_wrong_contact_to_admin'); ?>');
             }
         })
+    }
+
+    function actionButton(status, UserID, JobId, CompanyEmployeeUserID) {
+        $.ajax({
+            type: "POST",
+            url: base_url + "admin/masters/jobpost/upsertCompanyJobAction/" + status + '/' + UserID + '/' + JobId + '/' + CompanyEmployeeUserID,
+            data: {
+                UserID: UserID
+            },
+            success: function(result) {
+                location.reload();
+            },
+            error: function(result) {
+                console.log("error" + result);
+            }
+        });
     }
     //---------pagiing and search----------//     
     $(document).ready(function() {
@@ -87,6 +107,7 @@
         common_ajax(current_page_size, total_page, 'View');
         common_ajax(current_page_size, total_page, "Applied");
         common_ajax(current_page_size, total_page, "Shortlisted");
+        myFunction(UserID);
         common_ajax(current_page_size, total_page, "Invited");
         common_ajax(current_page_size, total_page, "Accept");
         common_ajax(current_page_size, total_page, "Decline");
@@ -121,6 +142,7 @@
         var temp = $('#select-dropdown').val();
         current_page_size = $('#' + mydiv + ' #select-dropdown').val();
         common_ajax(current_page_size, total_page);
+        myFunction(UserID);
 
     })
     $(document).on("click", ".changeFilter", function() {

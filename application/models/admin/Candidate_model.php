@@ -78,8 +78,8 @@ class Candidate_model extends CI_Model
             $EndSalary . "' , '" .
             $DesignationID . "' , '" .
             $SortBy . "' , '" .
-            $SortByOrder . "' , '" .
-            $jobSearchText . "',''
+            $SortByOrder . "' , '','" .
+            $jobSearchText . "'
             );";
         $query = $this->db->query($sql);
         $query->next_result();

@@ -1,3 +1,4 @@
+DROP PROCEDURE IF EXISTS `usp_M_GetCandidateListJobShort`;
 DELIMITER $$
 CREATE PROCEDURE `usp_M_GetCandidateListJobShort`(IN `_PageSize` INT, IN `_CurrentPage` INT, IN `_UserID` INT, IN `_Path` VARCHAR(255), IN `_SkillSearch` VARCHAR(255), IN `_Type` ENUM('All','Apply','View','Saved','Shortlisted','Invited','Hired','Accept','Decline','HiredDecline'), IN `_JobPostID` INT, IN `_StartSalary` DOUBLE, IN `_EndSalary` DOUBLE, IN `_DesignationIDS` TEXT, IN `_Sort` ENUM('Salary','Name','Modified'), IN `_SortByOrder` ENUM('ASC','DESC'), IN `_CityIDS` TEXT, IN `_JobSearch` VARCHAR(255))
     NO SQL
@@ -133,8 +134,10 @@ IF(_Type="All") THEN
           LEFT JOIN ssc_cities CT ON (CT.CityID = CD.CityID AND CT.Status = 1)
           LEFT JOIN ssc_useremployement UEMP ON (UEMP.UserID = CD.UserID AND UEMP.Status = 1 AND UEMP.IsPresent = 1)
           LEFT JOIN ssc_designation DES ON (DES.DesignationID = UEMP.DesignationID AND DES.Status = 1)
+          LEFT JOIN ssc_userskill sk ON sk.UserID = CD.UserID
+          LEFT JOIN ssc_skill k ON k.SkillID = sk.SkillID
           WHERE
-            FIND_IN_SET(U.UserID,@Candidate_IDS) AND (IFNULL(CD.ProfileSummary,'') LIKE CONCAT("%",IFNULL(_JobSearch,IFNULL(CD.ProfileSummary,'')),"%") OR IFNULL(CD.CVHeadLine,'') LIKE CONCAT("%",IFNULL(_JobSearch,IFNULL(CD.CVHeadLine,'')),"%")) 
+            FIND_IN_SET(U.UserID,@Candidate_IDS) AND (IFNULL(k.SkillName,'') LIKE CONCAT("%",IFNULL(_JobSearch,IFNULL(k.SkillName,'')),"%")) 
       ) V 
       ORDER BY  (CASE             
         WHEN _Sort='Name' AND _SortByOrder = 'DESC' THEN V.FirstName 
