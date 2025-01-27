@@ -579,7 +579,7 @@ class Candidate_model extends CI_Model
                 $array['IPAddress'] . "','" .
                 $array['CreatedBy'] . "')";
             $query = $this->db->query($sql);
-            return 1;
+            return @$res->ID;
         } else {
             return 0;
         }

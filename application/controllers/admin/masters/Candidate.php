@@ -379,8 +379,10 @@ class Candidate extends Admin_Controller
                 if ($this->form_validation->run() == TRUE) {
                     $data = $this->input->post();
                     $data['ID'] = 0;
+
+                    // print_r($data);
+                    // die();
                     $res = $this->candidate_model->addeditSkill($data);
-                    //print_r($res);die();
                     if (@$res->ID) {
 
                         redirect($this->config->item('base_url') . 'admin/masters/candidate/details/' . $CandidateID . '#skill');
@@ -1168,8 +1170,18 @@ class Candidate extends Admin_Controller
                         'theight' => -1
                     );
                     $data['cv'] = FileUploadURL("cvfile", "editCVPath", $config1, '', $cvurl);
+                    $Skilldata = [];
+                    $Skilldata['ID'] = 0;
+                    $Skilldata['UserSkillID'] = 0;
+                    $Skilldata['SkillID'] = $data['SkillID'];
+                    $Skilldata['Status'] = 'on';
+                    unset($data['SkillID']);
                     $res = $this->candidate_model->insert($data);
-                    if ($res == 1) {
+                    $Skilldata['UserID'] = $res;
+                    // print_r($res);
+                    // die;
+                    $this->candidate_model->addeditSkill($Skilldata);
+                    if ($res != 0) {
                         redirect($this->config->item('base_url') . 'admin/masters/candidate');
                     } else {
                         $this->session->set_flashdata('posterror', label('please_try_again'));
@@ -1181,6 +1193,7 @@ class Candidate extends Admin_Controller
                 }
             }
             $this->load->view('admin/includes/header');
+            $data['skill'] = getSkillComboboxSingle();
             $data['page_name'] = 'add';
             $data['loading_button'] = getLoadingButton();
             $data['JobType'] = GetJobTypeList();

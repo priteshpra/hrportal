@@ -112,9 +112,10 @@
                         <div class="input-field col s6">
                             <?= @$JobType; ?>
                         </div>
-
+                        <div class="input-field col s6">
+                            <?= @$skill; ?>
+                        </div>
                     </div>
-
                     <div class="row">
                         <div class="input-field col s6">
                             <label for="Gender"><?php echo label('msg_lbl_gender'); ?></label>
